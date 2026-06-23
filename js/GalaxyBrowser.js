@@ -11,8 +11,11 @@ import {
     addCustomGalaxy,
     deleteCustomGalaxy,
     isBuiltIn,
+    createGalaxyOnServer,
+    deleteGalaxyOnServer,
 } from './galaxyRegistry.js';
 import { AU } from './constants.js';
+import { POS_SCALE } from './constants.js';
 
 export class GalaxyBrowser {
     /**
@@ -20,6 +23,7 @@ export class GalaxyBrowser {
      * @param {object}   deps.planets    — 当前所有星球实例 { key: CelestialBody }
      * @param {object}   deps.physics    — PhysicsEngine 实例
      * @param {THREE.Scene} deps.scene   — 主场景
+     * @param {SystemManager} deps.systemManager — 系统切换管理器
      * @param {function} deps.onFocusBody — 回调 (bodyKey) 聚焦星球
      * @param {function} deps.onNavigateToGalaxy — 回调 (galaxyId) 导航到星系视图
      * @param {function} deps.onRefreshOrbits — 回调 重绘轨道线
@@ -28,6 +32,7 @@ export class GalaxyBrowser {
         this.planets         = deps.planets;
         this.physics         = deps.physics;
         this.scene           = deps.scene;
+        this.systemManager   = deps.systemManager;
         this.onFocusBody     = deps.onFocusBody || (() => {});
         this.onNavigateToGalaxy = deps.onNavigateToGalaxy || (() => {});
         this.onRefreshOrbits = deps.onRefreshOrbits || (() => {});
@@ -47,18 +52,19 @@ export class GalaxyBrowser {
             <div class="galaxy-browser-backdrop"></div>
             <div class="galaxy-browser-panel">
                 <div class="galaxy-browser-header">
-                    <span>🌌 星系浏览器</span>
+                    <span>🌌 单恒星系统浏览器</span>
                     <button class="galaxy-browser-close" id="galaxy-browser-close">&times;</button>
                 </div>
                 <div class="galaxy-browser-search">
                     <span class="galaxy-search-icon">🔍</span>
-                    <input type="text" id="galaxy-search-input" placeholder="搜索星系或星球（关键词）..." autocomplete="off" />
+                    <input type="text" id="galaxy-search-input" placeholder="搜索单恒星系统或星球（关键词）..." autocomplete="off" />
                 </div>
                 <div class="galaxy-browser-list" id="galaxy-browser-list">
                     <div class="galaxy-browser-empty">加载中...</div>
                 </div>
                 <div class="galaxy-browser-footer">
-                    <button class="galaxy-browser-add-btn" id="galaxy-browser-add-btn">➕ 添加新星系</button>
+                    <button class="galaxy-browser-add-btn" id="galaxy-browser-add-btn">➕ 添加单恒星系统</button>
+                    <button class="galaxy-browser-add-btn" id="galaxy-browser-exoplanet-btn" style="display:none;">🪐 添加系外行星（开发中）</button>
                 </div>
             </div>
         `;
@@ -91,12 +97,12 @@ export class GalaxyBrowser {
         <div class="add-galaxy-backdrop"></div>
         <div class="add-galaxy-panel">
             <div class="add-galaxy-header">
-                <span>➕ 创建新星系</span>
+                <span>➕ 创建单恒星系统</span>
                 <button class="add-galaxy-close" id="ag-close">&times;</button>
             </div>
             <div class="add-galaxy-body">
                 <div class="ag-section">
-                    <div class="ag-section-title">🌌 星系信息</div>
+                    <div class="ag-section-title">🌌 单恒星系统信息</div>
                     <div class="ag-row"><label>名称</label><input id="ag-name" value="新星系" placeholder="如：比邻星系" /></div>
                     <div class="ag-row"><label>英文名</label><input id="ag-name-cn" value="New Galaxy" placeholder="如：Proxima Centauri" /></div>
                     <div class="ag-row"><label>描述</label><textarea id="ag-desc" rows="2" placeholder="简短描述...">一个新的恒星系统</textarea></div>
@@ -126,7 +132,7 @@ export class GalaxyBrowser {
                 </div>
             </div>
             <div class="add-galaxy-footer">
-                <button id="ag-confirm" class="ag-confirm-btn">🚀 创建星系并发射入轨</button>
+                <button id="ag-confirm" class="ag-confirm-btn">🚀 创建单恒星系统并发射入轨</button>
             </div>
         </div>`;
     }
@@ -209,12 +215,14 @@ export class GalaxyBrowser {
 
         // 删除自定义星系
         this.listEl.querySelectorAll('.gb-delete-galaxy').forEach(btn => {
-            btn.addEventListener('click', (e) => {
+            btn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 const galaxyId = btn.dataset.galaxyId;
                 if (confirm('确定要删除这个星系及其所有天体吗？')) {
                     this._deleteGalaxyBodies(galaxyId);
                     deleteCustomGalaxy(galaxyId);
+                    // 尝试从服务器删除（非阻塞）
+                    await deleteGalaxyOnServer(galaxyId).catch(() => {});
                     this._renderList();
                 }
             });
@@ -302,7 +310,7 @@ export class GalaxyBrowser {
         return colors[Math.floor(Math.random() * colors.length)];
     }
 
-    _confirmCreateGalaxy() {
+    async _confirmCreateGalaxy() {
         // --- 读取星系信息 ---
         const galaxyName   = document.getElementById('ag-name').value.trim() || '新星系';
         const galaxyNameCN = document.getElementById('ag-name-cn').value.trim() || 'New Galaxy';
@@ -319,40 +327,12 @@ export class GalaxyBrowser {
         const starPosZ  = parseFloat(document.getElementById('ag-star-z').value) || 0;
         // 恒星贴图
         const starTexFile = document.getElementById('ag-star-texture')?.files?.[0];
-        const starTexPath = starTexFile ? URL.createObjectURL(starTexFile) : null;
-
-        // 恒星在 SI 空间中的位置
-        const starSIPos = {
-            x: starPosX * AU,
-            y: starPosY * AU,
-            z: starPosZ * AU,
-        };
-
-        // --- 生成 key ---
-        const galaxyId = 'custom_galaxy_' + Date.now();
-        const starKey = galaxyId + '_star';
-
-        // --- 构建恒星数据 ---
-        const starPlanetInfo = {
-            key: starKey,
-            name: starName,
-            nameCN: starName,
-            mass: starMass,
-            radius: starRadius * 1000,
-            orbitRadius: 0,
-            visualRadius: starVisual,
-            color: starColor,
-            texturePath: starTexPath,
-            details: `${starName} — ${galaxyName}的中心恒星。\n质量：${(starMass / 1.989e30).toFixed(2)} M☉\n半径：${starRadius.toLocaleString()} km`,
-            voiceIntro: '',
-            isStar: true,
-            _siPosition: starSIPos,
-        };
+        const starTexBase64 = await this._fileToBase64(starTexFile);
 
         // --- 读取行星信息 ---
-        const planetInfos = [];
+        const planetEntries = [];
         const planetRows = this.agPlanetList.querySelectorAll('.ag-planet-row');
-        planetRows.forEach(row => {
+        for (const row of planetRows) {
             const pName   = row.querySelector('.ag-p-name').value.trim() || '行星';
             const pMass   = parseFloat(row.querySelector('.ag-p-mass').value) || 5.97e24;
             const pRadius = parseFloat(row.querySelector('.ag-p-radius').value) || 6371;
@@ -360,44 +340,159 @@ export class GalaxyBrowser {
             const pColor  = row.querySelector('.ag-p-color').value || '#ff8844';
             const pVisual = parseFloat(row.querySelector('.ag-p-visual').value) || 0.5;
             const pTexFile = row.querySelector('.ag-p-texture')?.files?.[0];
-            const pTexPath = pTexFile ? URL.createObjectURL(pTexFile) : null;
+            const pTexBase64 = await this._fileToBase64(pTexFile);
 
-            const pKey = galaxyId + '_planet_' + planetInfos.length;
-            planetInfos.push({
-                key: pKey,
+            planetEntries.push({
                 name: pName,
-                nameCN: pName,
                 mass: pMass,
                 radius: pRadius * 1000,
                 orbitRadius: pOrbit * AU,
                 visualRadius: pVisual,
                 color: pColor,
-                texturePath: pTexPath,
-                details: `${pName} — ${galaxyName}的行星。\n质量：${(pMass / 1e24).toFixed(1)}×10²⁴ kg\n轨道半径：${pOrbit} AU`,
-                voiceIntro: '',
-                isStar: false,
+                textureData: pTexBase64 || null,
+                textureName: pTexFile?.name || null,
             });
-        });
+        }
 
-        // --- 注册到 galaxyRegistry ---
-        const allPlanetInfos = [starPlanetInfo, ...planetInfos];
-        const galaxyData = {
+        // --- 尝试通过服务器创建星系文件夹 ---
+        const serverResult = await createGalaxyOnServer({
             name: galaxyName,
             nameCN: galaxyNameCN,
             description: galaxyDesc,
-            icon: '🌟',
-            planets: allPlanetInfos,
-        };
-        addCustomGalaxy(galaxyData);
+            star: {
+                name: starName,
+                mass: starMass,
+                radius: starRadius * 1000,
+                color: starColor,
+                visualRadius: starVisual,
+                x: starPosX,
+                y: starPosY,
+                z: starPosZ,
+                textureData: starTexBase64 || null,
+                textureName: starTexFile?.name || null,
+            },
+            planets: planetEntries,
+        });
 
-        // --- 创建 Three.js 天体实例 ---
-        this._instantiateGalaxy(galaxyId, starSIPos, starPlanetInfo, planetInfos, starMass);
+        if (serverResult.ok) {
+            console.log(`[GalaxyBrowser] 服务器创建星系成功: ${serverResult.id}`);
+
+            // 动态导入新创建的模块
+            try {
+                const modulePath = `../Galaxy/${serverResult.id}/index.js?t=${Date.now()}`;
+                const galaxyModule = await import(modulePath);
+
+                // 注册为模块供 SystemManager 使用
+                if (this.systemManager) {
+                    this.systemManager.registerModule(serverResult.id, galaxyModule.createPlanets, galaxyModule.MOON_CLASSES);
+                    // 切换到新系统
+                    this.onNavigateToGalaxy(serverResult.id);
+                }
+
+                // 也保存到 localStorage（冗余备份）
+                const starSIPos = { x: starPosX * AU, y: starPosY * AU, z: starPosZ * AU };
+                const allPlanetInfos = [
+                    {
+                        key: serverResult.id + '_star',
+                        name: starName, nameCN: starName,
+                        mass: starMass, radius: starRadius * 1000, orbitRadius: 0,
+                        visualRadius: starVisual, color: starColor,
+                        isStar: true, _siPosition: starSIPos,
+                        details: `${starName} — ${galaxyName}的中心恒星。`,
+                        voiceIntro: '',
+                    },
+                    ...planetEntries.map((p, i) => ({
+                        key: serverResult.id + '_planet_' + i,
+                        name: p.name, nameCN: p.name,
+                        mass: p.mass, radius: p.radius, orbitRadius: p.orbitRadius,
+                        visualRadius: p.visualRadius, color: p.color,
+                        isStar: false,
+                        details: `${p.name} — ${galaxyName}的行星。`,
+                        voiceIntro: '',
+                    })),
+                ];
+                addCustomGalaxy({
+                    name: galaxyName, nameCN: galaxyNameCN,
+                    description: galaxyDesc, icon: '🌟',
+                    planets: allPlanetInfos,
+                });
+
+                console.log(`[GalaxyBrowser] 星系 "${galaxyName}" 创建完成`);
+            } catch (importErr) {
+                console.error('[GalaxyBrowser] 动态导入星系模块失败:', importErr);
+                // 回退到传统的 localStorage + 直接实例化
+                this._fallbackCreate(galaxyName, galaxyNameCN, galaxyDesc,
+                    starName, starMass, starRadius, starColor, starVisual,
+                    starPosX, starPosY, starPosZ, planetEntries);
+            }
+        } else {
+            console.warn('[GalaxyBrowser] 服务器创建失败，使用本地模式:', serverResult.error);
+            this._fallbackCreate(galaxyName, galaxyNameCN, galaxyDesc,
+                starName, starMass, starRadius, starColor, starVisual,
+                starPosX, starPosY, starPosZ, planetEntries);
+        }
 
         // --- 关闭模态框 & 刷新列表 ---
         this.addModal.classList.add('hidden');
         this._renderList();
+    }
 
-        console.log(`[GalaxyBrowser] 星系 "${galaxyName}" 创建完成，${allPlanetInfos.length} 个天体`);
+    /** 回退方案：本地创建（不依赖服务器） */
+    _fallbackCreate(galaxyName, galaxyNameCN, galaxyDesc,
+        starName, starMass, starRadius, starColor, starVisual,
+        starPosX, starPosY, starPosZ, planetEntries) {
+
+        const galaxyId = 'custom_galaxy_' + Date.now();
+        const starKey = galaxyId + '_star';
+        const starSIPos = { x: starPosX * AU, y: starPosY * AU, z: starPosZ * AU };
+
+        const starPlanetInfo = {
+            key: starKey, name: starName, nameCN: starName,
+            mass: starMass, radius: starRadius, orbitRadius: 0,
+            visualRadius: starVisual, color: starColor,
+            details: `${starName} — ${galaxyName}的中心恒星。`,
+            voiceIntro: '', isStar: true, _siPosition: starSIPos,
+        };
+
+        const planetInfos = planetEntries.map((p, i) => ({
+            key: galaxyId + '_planet_' + i,
+            name: p.name, nameCN: p.name,
+            mass: p.mass, radius: p.radius, orbitRadius: p.orbitRadius,
+            visualRadius: p.visualRadius, color: p.color,
+            details: `${p.name} — ${galaxyName}的行星。`,
+            voiceIntro: '', isStar: false,
+        }));
+
+        const allPlanetInfos = [starPlanetInfo, ...planetInfos];
+        addCustomGalaxy({
+            name: galaxyName, nameCN: galaxyNameCN,
+            description: galaxyDesc, icon: '🌟',
+            planets: allPlanetInfos,
+        });
+
+        this._instantiateGalaxy(galaxyId, starSIPos, starPlanetInfo, planetInfos, starMass);
+
+        console.log(`[GalaxyBrowser] (本地模式) 星系 "${galaxyName}" 创建完成，${allPlanetInfos.length} 个天体`);
+    }
+
+    /** 将文件转为 Base64 */
+    _fileToBase64(file) {
+        if (!file) return Promise.resolve(null);
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => {
+                const result = reader.result;
+                // 去掉 data:...;base64, 前缀
+                if (typeof result === 'string') {
+                    const parts = result.split(',');
+                    resolve(parts[1] || null);
+                } else {
+                    resolve(null);
+                }
+            };
+            reader.onerror = () => resolve(null);
+            reader.readAsDataURL(file);
+        });
     }
 
     /** 将星系数据实例化为 CelestialBody 并加入物理引擎 */
@@ -463,12 +558,52 @@ export class GalaxyBrowser {
         this._customBodies.push({ galaxyId, keys: createdKeys });
     }
 
-    /** 页面加载时恢复所有自定义星系的天体实例 */
-    restoreCustomGalaxies() {
-        const allGalaxies = getAllGalaxies();
-        const customGalaxies = allGalaxies.filter(g => !g.isBuiltIn);
+    /** 页面加载时恢复所有自定义星系的天体实例（服务器 + localStorage） */
+    async restoreCustomGalaxies() {
+        // 1) 优先从服务器加载星系模块
+        try {
+            const { fetchServerGalaxies } = await import('./galaxyRegistry.js');
+            const serverGalaxies = await fetchServerGalaxies();
+            const knownPlanetKeys = new Set(Object.keys(this.planets));
 
-        customGalaxies.forEach(g => {
+            for (const sg of serverGalaxies) {
+                // 跳过内置星系（已通过静态导入创建）
+                const builtInFolderIds = ['solar-system', 'solar system', 'hd-219134'];
+                if (builtInFolderIds.includes(sg.id)) continue;
+                // 跳过已存在的
+                if (knownPlanetKeys.has(sg.id) || knownPlanetKeys.has(sg.id + '_star')) continue;
+
+                try {
+                    const modPath = `../Galaxy/${sg.id}/index.js?t=${Date.now()}`;
+                    const mod = await import(modPath);
+                    if (mod.createPlanets) {
+                        const newBodies = mod.createPlanets(this.scene, this.planets);
+                        for (const key of Object.keys(newBodies)) {
+                            this.planets[key] = newBodies[key];
+                        }
+                        this._customBodies.push({
+                            galaxyId: sg.id,
+                            keys: Object.keys(newBodies),
+                        });
+                        // 注册到系统管理器
+                        if (this.systemManager && mod.createPlanets) {
+                            this.systemManager.registerModule(sg.id, mod.createPlanets, mod.MOON_CLASSES);
+                        }
+                        console.log(`[GalaxyBrowser] 从服务器加载星系模块: ${sg.id}`);
+                    }
+                } catch (e) {
+                    console.warn(`[GalaxyBrowser] 加载服务器星系 ${sg.id} 失败:`, e.message);
+                }
+            }
+        } catch (e) {
+            // 服务器不可用，忽略
+        }
+
+        // 2) 回退：从 localStorage 恢复自定义星系
+        const allGalaxies = getAllGalaxies();
+        const localGalaxies = allGalaxies.filter(g => !g.isBuiltIn && !this.planets[g.id + '_star']);
+
+        localGalaxies.forEach(g => {
             const starInfo = g.planets?.find(p => p.isStar);
             const planetInfos = g.planets?.filter(p => !p.isStar) || [];
 
@@ -484,8 +619,8 @@ export class GalaxyBrowser {
             this._instantiateGalaxy(g.id, starSIPos, starInfo, planetInfos, starMass);
         });
 
-        if (customGalaxies.length > 0) {
-            console.log(`[GalaxyBrowser] 恢复了 ${customGalaxies.length} 个自定义星系`);
+        if (localGalaxies.length > 0) {
+            console.log(`[GalaxyBrowser] 从 localStorage 恢复了 ${localGalaxies.length} 个自定义星系`);
         }
     }
 

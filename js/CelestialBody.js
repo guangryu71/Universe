@@ -150,12 +150,20 @@ export class CelestialBody {
     }
 
     // ---------- 圆形轨道速度 ----------
-    setCircularOrbitVelocity(centralMass) {
-        const r = this.position.length();
+    /**
+     * 设置以 centralPos 为中心的圆形轨道速度
+     * @param {number} centralMass - 中心天体的质量 (kg)
+     * @param {THREE.Vector3} [centerPos] - 中心位置，默认原点 (0,0,0)
+     */
+    setCircularOrbitVelocity(centralMass, centerPos = new THREE.Vector3()) {
+        const dx = this.position.x - centerPos.x;
+        const dz = this.position.z - centerPos.z;
+        const r = Math.sqrt(dx * dx + dz * dz);
         if (r === 0) return;
         const G = 6.67430e-11;
         const speed = Math.sqrt(G * centralMass / r);
-        const dir = new THREE.Vector3(-this.position.z, 0, this.position.x).normalize();
+        // 在 XZ 平面垂直轨道半径方向
+        const dir = new THREE.Vector3(-dz, 0, dx).normalize();
         this.velocity.copy(dir.multiplyScalar(speed));
     }
 

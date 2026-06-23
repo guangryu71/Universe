@@ -34,7 +34,7 @@ export class SceneManager {
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.08;
         this.controls.minDistance = 2;
-        this.controls.maxDistance = 300;
+        this.controls.maxDistance = 1500;
         this.controls.target.set(0, 0, 0);
 
         // Blender 映射

@@ -8,7 +8,6 @@ import { SceneManager } from './scene.js';
 import { PhysicsEngine } from './physics.js';
 import { UIManager } from './ui.js';
 import { BGMManager } from './bgm.js?v=2';
-import { createAllPlanets } from './planets.js';
 import { SIM_DT, POS_SCALE } from './constants.js';
 import { createMoons, updateMoons } from './moons.js';
 import { CelestialBody } from './CelestialBody.js';
@@ -19,6 +18,11 @@ import { ShipModule } from '../sheep/js/bridge.js';
 import { GalaxyBrowser } from './GalaxyBrowser.js';
 import { FocusController } from './FocusController.js';
 import { PlanetLab } from '../add-planet/PlanetLab.js';
+import { SystemManager } from './SystemManager.js';
+
+import * as solarSystemModule from '../Galaxy/solar system/index.js';
+import * as hd219134Module from '../Galaxy/hd-219134/index.js';
+
 import * as THREE from 'three';
 
 const SURFACE_DIR = 'Galaxy/solar system/planets/surface/';
@@ -33,19 +37,26 @@ class SolarSystemApp {
         }
 
         this.sceneManager = new SceneManager(container);
-        this.planets = createAllPlanets(this.sceneManager.scene);
         this.canvas = this.sceneManager.renderer.domElement;
 
-        // --- 卫星 ---
+        // 天体容器（初始为空，由 SystemManager 填充）
+        this.planets = {};
         this.allMoons = {};
-        for (const [key, planet] of Object.entries(this.planets)) {
-            if (key === 'sun') continue;
-            const moons = createMoons(this.sceneManager.scene, planet);
-            if (moons.length > 0) this.allMoons[key] = moons;
-        }
+        this.physics = new PhysicsEngine([]);
 
-        const bodies = Object.values(this.planets);
-        this.physics = new PhysicsEngine(bodies);
+        // --- 系统切换管理器（销毁/重建模式，所有系统以原点为中心） ---
+        this.systemManager = new SystemManager({
+            planets: this.planets,
+            physics: this.physics,
+            scene: this.sceneManager.scene,
+            allMoons: this.allMoons,
+            onSwitch: (systemId) => this._onSystemSwitch(systemId),
+            onDrawOrbits: (systemId, scene) => this._createOrbitLines(),
+        });
+
+        // 注册星系模块
+        this.systemManager.registerModule('solar-system', solarSystemModule.createPlanets, solarSystemModule.MOON_CLASSES);
+        this.systemManager.registerModule('hd-219134', hd219134Module.createPlanets, hd219134Module.MOON_CLASSES);
 
         // --- 卫星式追踪 ---
         this.focusController = new FocusController({
@@ -78,7 +89,7 @@ class SolarSystemApp {
         // 星语设置
         initVoiceSettings();
 
-        this._createOrbitLines();
+        // 轨道线由 SystemManager 的 onDrawOrbits 回调自动绘制
 
         // --- 探测器 ---
         this.probeMesh = null;
@@ -142,14 +153,17 @@ class SolarSystemApp {
             planets: this.planets,
             physics: this.physics,
             scene: this.sceneManager.scene,
+            systemManager: this.systemManager,
             onFocusBody: (bodyKey) => this.focusController.focusByKey(bodyKey),
-            onNavigateToGalaxy: (galaxyId) => this.focusController.navigateToGalaxy(galaxyId),
+            onNavigateToGalaxy: (galaxyId) => {
+                this.focusController.dismiss();
+                this.systemManager.switchTo(galaxyId);
+                this.focusController.navigateToGalaxy(galaxyId);
+            },
             onRefreshOrbits: () => this._refreshOrbits(),
         });
         // 恢复上次保存的自定义星系
-        this.galaxyBrowser.restoreCustomGalaxies();
-
-        // ---- 星系浏览器按钮 ----
+        this.galaxyBrowser.restoreCustomGalaxies().catch(() => {});
         document.getElementById('galaxy-browser-btn')?.addEventListener('click', () => {
             if (this.shipModule && this.shipModule.isActive()) return;
             this.galaxyBrowser.show();
@@ -168,7 +182,34 @@ class SolarSystemApp {
             this.planetLab.open();
         });
 
+        // 最后启动默认系统（此时所有依赖已就绪）
+        this.systemManager.switchTo('solar-system');
+
         this._animate();
+    }
+
+    // ==================== 系统切换管理 ====================
+
+    /** 系统切换完成回调 */
+    _onSystemSwitch(systemId) {
+        console.log(`[main] 系统切换到: ${systemId}`);
+
+        // 如果有探测器，销毁
+        if (this.probeData) this._destroyProbe();
+
+        // 取消聚焦状态
+        if (this.focusController?.isFocused) {
+            this.focusController.dismiss();
+        }
+
+        // 更新视角到新系统（聚焦恒星）
+        if (systemId === 'solar-system') {
+            this.sceneManager.camera.position.set(5, 30, 45);
+            this.sceneManager.controls.target.set(0, 0, 0);
+            this.sceneManager.controls.update();
+        } else {
+            this.focusController.navigateToGalaxy(systemId);
+        }
     }
 
     // ==================== 时间流速 ====================
@@ -268,7 +309,7 @@ class SolarSystemApp {
         });
     }
 
-    // ==================== 轨道线（温暖红橙色调） ====================
+    // ==================== 轨道线 ====================
     _createOrbitLines(clearOnly = false) {
         // 先清除旧轨道线
         if (this._orbitLines) {
@@ -278,19 +319,27 @@ class SolarSystemApp {
         if (clearOnly) return;
 
         const scene = this.sceneManager.scene;
-        for (const key of Object.keys(this.planets)) {
-            if (key === 'sun') continue;
-            const r = this.planets[key].orbitRadius;
+        // 所有在物理引擎中的天体都是当前系统的一部分
+        for (const body of this.physics.bodies) {
+            const key = body.key;
+            if (key === 'sun' || key.startsWith('custom_')) continue;
+            const r = body.orbitRadius;
             if (!r || r <= 0) continue;
+
+            // 当前系统以原点为中心，轨道直接以原点为圆心
             const visualR = r * POS_SCALE;
             const pts = [];
             for (let i = 0; i <= 256; i++) {
                 const a = (i / 256) * Math.PI * 2;
-                pts.push(new THREE.Vector3(Math.cos(a) * visualR, 0, Math.sin(a) * visualR));
+                pts.push(new THREE.Vector3(
+                    Math.cos(a) * visualR, 0,
+                    Math.sin(a) * visualR
+                ));
             }
             const geo = new THREE.BufferGeometry().setFromPoints(pts);
             const line = new THREE.Line(geo, new THREE.LineBasicMaterial({
-                color: 0xbb5544, transparent: true, opacity: 0.35, depthTest: true,
+                color: 0xbb5544,
+                transparent: true, opacity: 0.35, depthTest: true,
             }));
             scene.add(line);
             this._orbitLines.push(line);
@@ -317,7 +366,10 @@ class SolarSystemApp {
             this.timeScale = 100;
             this._updateTimeDisplay();
 
-            const keys = Object.keys(this.planets).filter(k => k !== 'sun');
+            // 对当前系统的天体进行轨道采样
+            const keys = this.physics.bodies
+                .map(b => b.key)
+                .filter(k => k !== 'sun' && !k.startsWith('custom_'));
 
             // 3) 等待 10s 让轨道稳定（动画循环正常跑 100x）
             await new Promise(r => setTimeout(r, 10000));
@@ -648,8 +700,8 @@ class SolarSystemApp {
         this.probeData = {
             start: startPos.clone(),
             velocity: dir.multiplyScalar(speed),
-            body: this._calcBody,
-            moonKey: this._calcMoon?.key || null,
+            body: null,          // 手动发射不锁定目标，自由飞行
+            moonKey: null,
             isManual: true,
         };
         this._exitManualAim();
@@ -860,11 +912,7 @@ class SolarSystemApp {
         }
 
         // 更新卫星
-        for (const [key, planet] of Object.entries(this.planets)) {
-            if (this.allMoons[key]) {
-                updateMoons(this.allMoons[key], planet.mesh.position, dt);
-            }
-        }
+        this.systemManager.updateMoons(dt);
 
         // 飞船模式：委托渲染并返回
         if (this.shipModule && this.shipModule.isActive()) {
@@ -878,26 +926,44 @@ class SolarSystemApp {
 
         // --- 探测器 ---
         if (this.probeData && this.probeMesh) {
-            const body = this.probeData.body;
-            const targetMesh = body?.mesh;
-            const vr = body?.visualRadius || 1;
-
             if (this.probeData.isManual && this._recalling) {
                 this._cleanProbeKeepAim();
             } else {
-                if (targetMesh) {
-                    const toTarget = targetMesh.position.clone().sub(this.probeMesh.position);
-                    const dist = toTarget.length();
-                    const desiredDir = toTarget.normalize();
-                    const correction = Math.min(5.0 / Math.max(dist, 0.5), 3.0);
-                    this.probeData.velocity.lerp(
-                        desiredDir.multiplyScalar(PROBE_SPEED),
-                        correction * dt
+                // 手动发射且无锁定目标：自由飞行
+                if (this.probeData.isManual && !this.probeData.body) {
+                    this.probeMesh.position.add(
+                        this.probeData.velocity.clone().multiplyScalar(dt)
                     );
+                } else {
+                    // 自动发射或有锁定目标：引导飞向目标
+                    const body = this.probeData.body;
+                    const targetMesh = body?.mesh;
+                    if (targetMesh) {
+                        const toTarget = targetMesh.position.clone().sub(this.probeMesh.position);
+                        const dist = toTarget.length();
+                        const desiredDir = toTarget.normalize();
+                        const correction = Math.min(5.0 / Math.max(dist, 0.5), 3.0);
+                        this.probeData.velocity.lerp(
+                            desiredDir.multiplyScalar(PROBE_SPEED),
+                            correction * dt
+                        );
+                        this.probeMesh.position.add(
+                            this.probeData.velocity.clone().multiplyScalar(dt)
+                        );
+
+                        const vr = body?.visualRadius || 1;
+                        if (dist < vr * 1.5) {
+                            const pk = body.key;
+                            const mk = this.probeData.moonKey;
+                            this._destroyProbe();
+                            this._showSurface(pk, mk);
+                        }
+                    } else {
+                        this.probeMesh.position.add(
+                            this.probeData.velocity.clone().multiplyScalar(dt)
+                        );
+                    }
                 }
-                this.probeMesh.position.add(
-                    this.probeData.velocity.clone().multiplyScalar(dt)
-                );
             }
 
             const dir = this.probeData.velocity.clone().normalize();
@@ -909,25 +975,16 @@ class SolarSystemApp {
                 this.probeTrail.geometry.dispose();
                 this.probeTrail.geometry = new THREE.BufferGeometry().setFromPoints(this._trailPoints);
             }
-
-            if (targetMesh) {
-                const dist = this.probeMesh.position.distanceTo(targetMesh.position);
-                if (dist < vr * 1.5) {
-                    const pk = this.probeData.body.key;
-                    const mk = this.probeData.moonKey;
-                    this._destroyProbe();
-                    this._showSurface(pk, mk);
-                }
-            }
         }
 
-        Object.values(this.planets).forEach(p => {
-            if (p.mesh && p.rotationSpeed) {
-                p.mesh.rotation.y += p.rotationSpeed * dt;
-                if (p.ringMesh) p.ringMesh.rotation.y = p.mesh.rotation.y;
-                if (p.cloudMesh) p.cloudMesh.rotation.y += p.rotationSpeed * 1.1 * dt;
+        // 自转（仅活跃系统中的天体）
+        for (const body of this.physics.bodies) {
+            if (body.mesh && body.rotationSpeed) {
+                body.mesh.rotation.y += body.rotationSpeed * dt;
+                if (body.ringMesh) body.ringMesh.rotation.y = body.mesh.rotation.y;
+                if (body.cloudMesh) body.cloudMesh.rotation.y += body.rotationSpeed * 1.1 * dt;
             }
-        });
+        }
 
         this.sceneManager.render(this.focusController.isFocused);
 
