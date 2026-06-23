@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>太阳系 · Solar System</title>
+    <link rel="stylesheet" href="css/style.css?v=12">
+    <link rel="stylesheet" href="sheep/css/ship.css">
+</head>
+<body>
+
+    <!-- Three.js 画布容器 -->
+    <div id="canvas-container"></div>
+
+    <!-- 时间流速控制（右下角） -->
+    <div id="time-control">
+        <span class="time-label">慢速</span>
+        <input type="range" id="time-slider" min="1" max="100" value="30" step="1">
+        <span class="time-label">快速</span>
+        <span id="time-display">正常速度</span>
+    </div>
+
+    <!-- 底部操作提示 -->
+    <div id="hint">中键拖拽旋转 &nbsp;|&nbsp; 左键平移 &nbsp;|&nbsp; 滚轮缩放 &nbsp;|&nbsp; 点击星球聚焦</div>
+
+    <!-- FPS 显示 -->
+    <div id="fps">FPS: --</div>
+
+
+    <!-- BGM 控制按钮 -->
+    <button id="bgm-control" title="点击播放BGM">🎵</button>
+
+    <!-- 音乐选择弹窗 -->
+    <div id="music-popup" class="music-popup hidden">
+        <div class="music-popup-inner">
+            <div class="music-popup-header">
+                <span>🎵 星际音乐站</span>
+                <button class="music-popup-close" id="music-popup-close">&times;</button>
+            </div>
+            <div class="music-popup-body" id="music-popup-body">
+                <!-- JS 动态填充 -->
+            </div>
+            <div class="music-popup-footer">
+                <div class="music-volume-row">
+                    <span>🔉</span>
+                    <input type="range" id="music-volume-slider" min="0" max="100" value="35" title="滚轮调节音量">
+                    <span>🔊</span>
+                </div>
+                <button id="music-upload-btn">📁 上传音乐</button>
+                <span class="music-popup-hint">右键 🎵 按钮打开</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加星体入口 -->
+    <button id="add-body-btn" title="添加星体">🪐</button>
+
+    <!-- AI 对话入口 -->
+    <button id="chat-launcher" title="星语终端 · AI对话">◈</button>
+
+    <!-- 星语设置入口 -->
+    <button id="voice-settings-btn" title="星语设置">⚙</button>
+
+    <!-- 进入飞船 -->
+    <button id="ship-entry-btn" title="进入飞船">🚀</button>
+
+    <!-- 星系浏览器入口 -->
+    <button id="galaxy-browser-btn" title="星系浏览器">🌌</button>
+
+    <!-- 星球实验室入口 -->
+    <button id="planet-lab-btn" title="星球实验室">🔬</button>
+
+    <!-- ==================== 星语终端 · 对话覆盖层 ==================== -->
+    <div id="chat-overlay" class="chat-overlay hidden">
+        <div class="chat-backdrop"></div>
+
+        <!-- 登录窗口（初始 30vw，居中） -->
+        <div class="chat-login" id="chat-login">
+            <button class="chat-close" id="chat-close-btn">&times;</button>
+            <div class="login-icon">◈</div>
+            <div class="login-title">星 语 终 端</div>
+            <div class="login-subtitle">STELLAR TERMINAL v1.0</div>
+            <div class="login-input-wrap">
+                <span class="prompt-arrow">▸</span>
+                <input type="password" id="chat-login-input" placeholder="输入访问密码" autocomplete="off" />
+            </div>
+            <div class="login-error" id="chat-login-error"></div>
+            <div class="login-status">> 系统待命中...</div>
+        </div>
+
+        <!-- 对话窗口（登录后展开） -->
+        <div class="chat-window hidden" id="chat-window">
+            <div class="chat-header">
+                <span class="chat-header-title">◈ 星语终端</span>
+                <span>DeepSeek Flash</span>
+                <button class="chat-close" id="chat-close-btn2">&times;</button>
+            </div>
+            <div class="chat-output" id="chat-output"></div>
+            <div class="chat-input-area">
+                <span class="prompt">▸</span>
+                <input type="text" id="chat-input" placeholder="输入消息，Enter 发送..." disabled />
+                <span class="chat-status" id="chat-status">◇ 离线</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- CRT 启动叠加层 -->
+    <div id="crt-overlay"></div>
+    <div id="crt-scanlines"></div>
+
+    <!-- 星球悬浮信息卡片 -->
+    <div id="planet-card">
+        <div class="card-title">
+            <span class="card-dot"></span>
+            <span class="card-title-text"></span>
+        </div>
+        <div class="card-name-cn"></div>
+        <div class="card-info"></div>
+        <button class="card-speak-btn" id="speak-btn" title="语音朗读">🔊</button>
+        <div class="card-actions">
+            <button class="card-btn">🔍 详情</button>
+            <button class="card-btn probe-btn" id="probe-btn">🚀 发送探测器</button>
+            <button class="card-btn recall-btn" id="recall-btn">↩ 收回探测器</button>
+        </div>
+    </div>
+
+    <!-- 探测器 · 计算覆盖层（闪回步骤） -->
+    <div id="calc-overlay" class="calc-overlay hidden">
+        <div class="calc-panel">
+            <button class="calc-close" id="calc-close">&times;</button>
+            <div class="calc-title">📡 探测器轨迹计算</div>
+            <div class="calc-divider"></div>
+            <div class="calc-step-text" id="calc-step-text"></div>
+            <div class="calc-detail" id="calc-detail"></div>
+            <div class="calc-actions hidden" id="calc-actions">
+                <div class="calc-speed-row">
+                    <label>发射速度:</label>
+                    <input type="number" id="manual-speed" value="35" min="5" max="200" step="5">
+                    <span>单位/秒</span>
+                </div>
+                <div class="calc-btns">
+                    <button class="calc-btn calc-btn-auto" id="btn-auto-launch">🚀 按计算发射</button>
+                    <button class="calc-btn calc-btn-manual" id="btn-manual">🎯 手动发射</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加星体面板 -->
+    <div id="add-body-panel" class="add-body-panel hidden">
+        <button class="abp-close" id="abp-close">&times;</button>
+        <div class="abp-tabs">
+            <button class="abp-tab active" data-tab="abp-add">➕ 添加</button>
+            <button class="abp-tab" data-tab="abp-list">📋 列表</button>
+        </div>
+
+        <!-- 添加页 -->
+        <div class="abp-section active" id="abp-add">
+            <div class="abp-title">可视化放置中...</div>
+            <div class="abp-row"><label>名称</label><input id="abp-name" value="新星体" /></div>
+            <div class="abp-row"><label>质量 (kg)</label><input id="abp-mass" type="number" value="1e24" step="any" /></div>
+            <div class="abp-row"><label>半径 (km)</label><input id="abp-radius" type="number" value="5000" step="any" /></div>
+            <div class="abp-row"><label>颜色</label><input id="abp-color" type="color" value="#ff8844" /></div>
+            <div class="abp-row"><label>视觉大小</label><input id="abp-visual" type="number" value="1.2" step="0.1" /></div>
+            <div class="abp-row"><label>位置 (AU)</label><span id="abp-pos-info" style="font-size:10px;color:#0f8;">等待放置...</span></div>
+            <!-- 初速度（放置后显示） -->
+            <div class="abp-row hidden" id="abp-velocity-section">
+              <label>初速度</label>
+              <span id="abp-vel-info" style="font-size:10px;color:#fc0;">未设置</span>
+              <div style="display:flex;gap:4px;margin-top:4px;">
+                <input id="abp-vel-speed" type="number" value="0" min="0" step="100" placeholder="m/s" style="flex:1;width:60px;">
+                <button id="abp-vel-btn" class="abp-btn" style="width:60px;font-size:11px;padding:2px 4px;">🎯 方向</button>
+              </div>
+            </div>
+            <button class="abp-btn" id="abp-confirm" disabled>📍 先点击场景放置位置</button>
+        </div>
+
+        <!-- 列表页 -->
+        <div class="abp-section" id="abp-list">
+            <div class="abp-title">已添加星体</div>
+            <div id="abp-list-body"></div>
+            <button class="abp-btn" id="abp-rebuild-orbits" style="margin-top:12px;">🔄 重绘所有轨道线</button>
+        </div>
+    </div>
+
+    <!-- 星球详细资料弹窗 -->
+    <div id="detail-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title" id="modal-planet-title"></div>
+                <button class="modal-close" id="modal-close-btn">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-planet-body"></div>
+        </div>
+    </div>
+
+    <!-- 星球表面全景图覆盖层 -->
+    <div id="surface-overlay" class="surface-overlay hidden">
+        <div class="surface-content">
+            <div class="surface-header">
+                <span id="surface-title">星球表面</span>
+                <button id="surface-close">&times;</button>
+            </div>
+            <div class="surface-img-wrap">
+                <img id="surface-image" src="" alt="表面图" />
+            </div>
+        </div>
+    </div>
+
+    <!-- 星语设置弹窗 -->
+    <div id="voice-settings-modal" class="vs-modal hidden">
+        <div class="vs-backdrop"></div>
+        <div class="vs-panel">
+            <div class="vs-header">
+                <span>⚙ 星语设置</span>
+                <button id="vs-close">&times;</button>
+            </div>
+            <div class="vs-tabs">
+                <button class="vs-tab active" data-tab="vs-prompt">💬 提示词</button>
+                <button class="vs-tab" data-tab="vs-voice">🔊 语音</button>
+                <button class="vs-tab" data-tab="vs-robotic">🤖 机械音</button>
+            </div>
+            <!-- 提示词页 -->
+            <div class="vs-page active" id="vs-prompt">
+                <label class="vs-label">AI 系统提示词</label>
+                <textarea id="vs-prompt-input" rows="6" placeholder="自定义 AI 角色设定...">你是一个宇宙飞船上的AI助手，用专业且略带科幻感的语气回答用户问题。回答简洁，每条回复不超过150字。</textarea>
+                <button id="vs-prompt-save" class="abp-btn">💾 保存</button>
+            </div>
+            <!-- 语音页（浏览器） -->
+            <div class="vs-page" id="vs-voice">
+                <label class="vs-label">TTS 引擎</label>
+                <select id="vs-tts-engine">
+                    <option value="browser">🌐 浏览器内置</option>
+                    <option value="robotic">🤖 Python 机械电子音</option>
+                </select>
+                <label class="vs-label">选择声音</label>
+                <select id="vs-browser-voice"></select>
+                <label class="vs-label">语速 <span id="vs-browser-rate-val">1.0</span></label>
+                <input type="range" id="vs-browser-rate" min="0.5" max="2" step="0.1" value="1.0">
+                <label class="vs-label">音调 <span id="vs-browser-pitch-val">1.0</span></label>
+                <input type="range" id="vs-browser-pitch" min="0.5" max="2" step="0.1" value="1.0">
+            </div>
+            <!-- 机械电子音页 -->
+            <div class="vs-page" id="vs-robotic">
+                <label class="vs-label">声音预设</label>
+                <select id="vs-robotic-preset">
+                    <option value="ai_assistant">🤖 AI 助手音 (默认)</option>
+                    <option value="classic_robot">📻 经典机器人</option>
+                    <option value="dalek">💀 Dalek 风格</option>
+                    <option value="glitch_ai">⚠️ 故障 AI</option>
+                    <option value="subtle_cyborg">🦾 轻度赛博格</option>
+                    <option value="old_radio">📡 老式收音机</option>
+                    <option value="deep_mech">🔩 低沉机械</option>
+                    <option value="custom">⚙️ 自定义参数</option>
+                </select>
+                <div id="vs-custom-params" class="hidden">
+                    <label class="vs-label">环形调制频率 <span id="vs-r-ring-freq-v">70</span> Hz</label>
+                    <input type="range" id="vs-r-ring-freq" min="0" max="150" step="1" value="70">
+                    <label class="vs-label">环形调制干湿比 <span id="vs-r-ring-mix-v">0.30</span></label>
+                    <input type="range" id="vs-r-ring-mix" min="0" max="1" step="0.05" value="0.3">
+                    <label class="vs-label">位深 <span id="vs-r-bit-depth-v">10</span></label>
+                    <input type="range" id="vs-r-bit-depth" min="2" max="16" step="1" value="10">
+                    <label class="vs-label">低采样率 <span id="vs-r-sr-reduce-v">16000</span> Hz</label>
+                    <input type="range" id="vs-r-sr-reduce" min="4000" max="44100" step="500" value="16000">
+                    <label class="vs-label">带通低截止 <span id="vs-r-bp-low-v">200</span> Hz</label>
+                    <input type="range" id="vs-r-bp-low" min="50" max="2000" step="10" value="200">
+                    <label class="vs-label">带通高截止 <span id="vs-r-bp-high-v">4000</span> Hz</label>
+                    <input type="range" id="vs-r-bp-high" min="500" max="16000" step="100" value="4000">
+                    <label class="vs-label">失真量 <span id="vs-r-distortion-v">1.5</span></label>
+                    <input type="range" id="vs-r-distortion" min="1" max="10" step="0.1" value="1.5">
+                    <label class="vs-label">音高偏移 <span id="vs-r-pitch-st-v">0</span> 半音</label>
+                    <input type="range" id="vs-r-pitch-st" min="-12" max="12" step="1" value="0">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 视角平面切换（右下角） -->
+    <div id="view-plane-btns">
+        <button class="vp-btn" data-plane="xy" title="XY平面视图 (Z轴方向)">XY</button>
+        <button class="vp-btn" data-plane="xz" title="XZ平面视图 (Y轴方向)">XZ</button>
+        <button class="vp-btn" data-plane="yz" title="YZ平面视图 (X轴方向)">YZ</button>
+    </div>
+
+    <!-- Three.js Import Map -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+
+    <!-- 应用入口 -->
+    <script type="module" src="js/main.js?v=20260623j"></script>
+
+</body>
+</html>

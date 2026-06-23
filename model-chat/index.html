@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>星语 · 宇宙终端</title>
+  <link rel="stylesheet" href="css/terminal.css" />
+</head>
+<body>
+
+  <!-- 背景效果 -->
+  <div class="grid-bg"></div>
+  <div class="scanlines"></div>
+  <div class="crt-flicker"></div>
+
+  <!-- ==================== 登录界面 ==================== -->
+  <div class="login-container" id="login-container">
+    <div class="login-icon">◈</div>
+    <div class="login-title">星 语 终 端</div>
+    <div class="login-subtitle">STELLAR TERMINAL v1.0</div>
+
+    <div class="login-input-wrap">
+      <span class="prompt-arrow">▸</span>
+      <input
+        type="password"
+        id="login-input"
+        placeholder="输入访问密码"
+        autocomplete="off"
+      />
+    </div>
+
+    <div class="login-error" id="login-error"></div>
+    <div class="login-status" id="login-status">> 系统待命中...</div>
+  </div>
+
+  <!-- ==================== 对话界面 ==================== -->
+  <div class="chat-container" id="chat-container">
+    <div class="chat-header">
+      <span class="chat-header-title">◈ 星语终端</span>
+    </div>
+
+    <div class="chat-output" id="chat-output"></div>
+
+    <div class="chat-input-area">
+      <span class="prompt">▸</span>
+      <input
+        type="text"
+        id="chat-input"
+        placeholder="输入消息，Enter 发送..."
+        disabled
+      />
+      <span class="chat-status" id="chat-status">◇ 离线</span>
+    </div>
+  </div>
+
+  <!-- ==================== 脚本 ==================== -->
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+{
+    "apiKey": "",
+    "apiUrl": "https://api.deepseek.com/v1/chat/completions",
+    "model": "deepseek-chat",
+    "systemPrompt": "你是宇宙探索助手，名字叫「星语」。你精通天文学、物理学和航天工程，能用专业又易懂的方式回答关于宇宙、星球、太空探索的任何问题。你驻扎在一艘星际飞船的终端上，回答风格简洁有力，偶尔带点太空诗人的浪漫。",
+    "maxTokens": 2048,
+    "temperature": 0.7,
+    "loginPassword": "star123",
+    "welcomeMessage": "> 星语终端已就绪。输入 /help 查看指令，或直接向我提问。"
+}
