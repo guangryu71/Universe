@@ -8,17 +8,19 @@ import { SceneManager } from './scene.js';
 import { PhysicsEngine } from './physics.js';
 import { UIManager } from './ui.js';
 import { BGMManager } from './bgm.js?v=2';
-import { SIM_DT, POS_SCALE } from './constants.js';
+import { SIM_DT, POS_SCALE, SYSTEM_SCALE } from './constants.js';
 import { createMoons, updateMoons } from './moons.js';
 import { CelestialBody } from './CelestialBody.js';
 import { BodyEditor } from '../add-planet/BodyEditor.js';
 import { openOverlay } from '../model-chat/js/overlay.js';
 import { speak as vsSpeak, initVoiceSettings } from './voice_settings.js';
-import { ShipModule } from '../sheep/js/bridge.js';
+import { ShipModule } from '../ship/js/bridge.js';
 import { GalaxyBrowser } from './GalaxyBrowser.js';
 import { FocusController } from './FocusController.js';
 import { PlanetLab } from '../add-planet/PlanetLab.js';
 import { SystemManager } from './SystemManager.js';
+import { TimeParticles } from './TimeParticles.js';
+import { soundManager } from './SoundManager.js';
 
 import * as solarSystemModule from '../Galaxy/solar system/index.js';
 import * as hd219134Module from '../Galaxy/hd-219134/index.js';
@@ -111,7 +113,20 @@ class SolarSystemApp {
 
         // --- 时间流速 ---
         this.timeScale = 0.12;
+        this.timeParticles = new TimeParticles();
         this._setupTimeSlider();
+
+        // --- 音效预加载 ---
+        soundManager.init();
+        // 全局：窗口内按钮点击统一音效
+        document.addEventListener('click', (e) => {
+            const btn = e.target.closest('button');
+            if (!btn || btn.closest('.sci-fi-btn')) return; // 右上角按钮已有独立音效
+            if (btn.closest('.chat-window, .chat-login, .music-popup, .add-body-panel, .vs-panel, .add-galaxy-panel, .fui-window, .calc-panel, [id^=pl-], .ship-nav-window')) {
+                const sm = window.__soundManager;
+                if (sm && sm.isReady()) sm.play('btnInside', { volume: 0.25, detune: Math.random() * 100 - 50 });
+            }
+        }, true);
 
         // --- FPS ---
         this.fpsEl = document.getElementById('fps');
@@ -204,7 +219,7 @@ class SolarSystemApp {
 
         // 更新视角到新系统（聚焦恒星）
         if (systemId === 'solar-system') {
-            this.sceneManager.camera.position.set(5, 30, 45);
+            this.sceneManager.camera.position.set(5 * SYSTEM_SCALE * 0.3, 30 * SYSTEM_SCALE * 0.3, 45 * SYSTEM_SCALE * 0.3);
             this.sceneManager.controls.target.set(0, 0, 0);
             this.sceneManager.controls.update();
         } else {
@@ -219,16 +234,56 @@ class SolarSystemApp {
         if (!this.slider || !this.timeDisplay) return;
         this.slider.value = 27;
         this.timeScale = Math.pow(10, (27 - 50) / 25);
+        this._sliderDragging = false;
+        this._prevSliderVal = 27;
+        this._lastSliderDir = 0;
+
         const update = () => {
             const val = parseInt(this.slider.value);
             this.timeScale = Math.pow(10, (val - 50) / 25);
+            const pct = ((val - 1) / 99) * 100;
+            this.slider.style.setProperty('--slider-pct', pct + '%');
             const ts = this.timeScale;
             if (Math.abs(ts - 1.0) < 0.005) {
                 this.timeDisplay.textContent = '1:1';
             } else {
                 this.timeDisplay.textContent = '1:' + ts.toFixed(2) + 'x';
             }
+            // 拖动中 → 粒子播放（传前后值判断向右划）
+            if (this.timeParticles) {
+                this.timeParticles.setDragging(this._sliderDragging, val, this._prevSliderVal);
+            }
+            // 拖动中 → 滑块方向音效（仅方向变化时播放一次完整音效）
+            if (this._sliderDragging && val !== this._prevSliderVal) {
+                const dir = val > this._prevSliderVal ? 1 : -1;
+                if (dir !== this._lastSliderDir) {
+                    this._lastSliderDir = dir;
+                    const sm = window.__soundManager;
+                    if (sm && sm.isReady()) sm.playSliderSwoosh(dir);
+                }
+            } else if (!this._sliderDragging) {
+                this._lastSliderDir = 0;
+            }
+            this._prevSliderVal = val;
         };
+
+        this.slider.addEventListener('mousedown', () => { this._sliderDragging = true; });
+        this.slider.addEventListener('mouseup', () => {
+            this._sliderDragging = false;
+            if (this.timeParticles) this.timeParticles.setDragging(false, this.slider.value, this._prevSliderVal);
+        });
+        this.slider.addEventListener('mouseleave', () => {
+            if (this._sliderDragging) {
+                this._sliderDragging = false;
+                if (this.timeParticles) this.timeParticles.setDragging(false, this.slider.value, this._prevSliderVal);
+            }
+        });
+        this.slider.addEventListener('touchstart', () => { this._sliderDragging = true; });
+        this.slider.addEventListener('touchend', () => {
+            this._sliderDragging = false;
+            if (this.timeParticles) this.timeParticles.setDragging(false, this.slider.value, this._prevSliderVal);
+        });
+
         this.slider.addEventListener('input', update);
         update();
     }
@@ -240,6 +295,11 @@ class SolarSystemApp {
             this.timeDisplay.textContent = '1:1';
         } else {
             this.timeDisplay.textContent = '1:' + ts.toFixed(2) + 'x';
+        }
+        if (this.slider) {
+            const val = parseInt(this.slider.value);
+            const pct = ((val - 1) / 99) * 100;
+            this.slider.style.setProperty('--slider-pct', pct + '%');
         }
     }
 
@@ -327,7 +387,7 @@ class SolarSystemApp {
             if (!r || r <= 0) continue;
 
             // 当前系统以原点为中心，轨道直接以原点为圆心
-            const visualR = r * POS_SCALE;
+            const visualR = r * POS_SCALE * SYSTEM_SCALE;
             const pts = [];
             for (let i = 0; i <= 256; i++) {
                 const a = (i / 256) * Math.PI * 2;

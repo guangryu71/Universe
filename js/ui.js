@@ -60,6 +60,8 @@ export class UIManager {
 
         this.card.querySelector('.card-btn').addEventListener('click', (e) => {
             e.stopPropagation();
+            const sm = window.__soundManager;
+            if (sm && sm.isReady()) sm.play('cardAction', { volume: 0.3 });
             if (this.activePlanet) {
                 this.showDetailModal(this.activePlanet, this.activeMoon);
             }
@@ -67,6 +69,8 @@ export class UIManager {
 
         this.probeBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
+            const sm = window.__soundManager;
+            if (sm && sm.isReady()) sm.play('probeFire', { volume: 0.35 });
             if (this.activePlanet) {
                 this.onProbe(this.activePlanet, this.activeMoon);
             }
@@ -167,6 +171,10 @@ export class UIManager {
             colorDot.style.background = colorToHex(body.color);
             infoEl.textContent = `质量: ${formatMass(body.mass)} | 半径: ${formatDiameter(body.realRadius)}`;
         }
+
+        // 星球选中音效
+        const sm = window.__soundManager;
+        if (sm && sm.isReady()) sm.play('planetSelect', { volume: 0.35 });
 
         // CRT 动画
         this.crtOverlay.classList.add('active');

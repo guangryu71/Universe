@@ -12,7 +12,7 @@ export class HD219134b extends CelestialBody {
     static MASS          = 4.50e24;       // ~4.5 M_E
     static RADIUS        = 9.20e6;        // ~1.44 R_E
     static ORBIT_RADIUS  = 0.0385 * 1.495978707e11;
-    static VISUAL_RADIUS = 0.45;
+    static VISUAL_RADIUS = 0.20;
     static COLOR         = 0xcc6644;
     static TEXTURE       = null;
 

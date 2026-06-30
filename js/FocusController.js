@@ -3,6 +3,7 @@
 // 从 main.js 提取，管理卫星式追踪的全部逻辑
 // ============================================================
 import * as THREE from 'three';
+import { SYSTEM_SCALE } from './constants.js';
 import { getGalaxyById } from './galaxyRegistry.js';
 
 export class FocusController {
@@ -47,7 +48,7 @@ export class FocusController {
         const meshPos = body.mesh.position.clone();
 
         const offset = new THREE.Vector3().subVectors(cam.position, meshPos);
-        const targetDist = Math.min(Math.max(body.visualRadius * 8, 2), 25);
+        const targetDist = Math.min(Math.max(body.visualRadius * 10 * SYSTEM_SCALE, 5), 200);
         offset.normalize().multiplyScalar(targetDist);
 
         cam.position.copy(meshPos).add(offset);

@@ -1,10 +1,7 @@
 // ============================================================
-// bgm.js — 背景音乐管理
-// 通过 Python 服务器扫描 music/ 文件夹获取音乐列表
-// 支持暂停/继续/切歌/删除/上传
+// bgm.js — 背景音乐管理（纯客户端版）
+// 音乐文件通过上传按钮加载，播放列表存储在内存中
 // ============================================================
-
-const TTS_SERVER = 'http://127.0.0.1:8765';
 
 export class BGMManager {
     constructor() {
@@ -70,39 +67,64 @@ export class BGMManager {
         this.audio.addEventListener('error', () => this._next());
     }
 
-    // ========== 从服务器扫描 music/ 文件夹 ==========
+    // ========== 加载音乐列表（扫描 music/ 目录） ==========
     async _loadMusicList() {
+        // 从 music/index.json 加载文件列表
         try {
-            const res = await fetch(TTS_SERVER + '/list-music');
-            if (!res.ok) throw new Error('HTTP ' + res.status);
-            const data = await res.json();
-            this.playlist = data.files || [];
-            this._updateBtn();
-
-            if (this.playlist.length > 0) {
-                this._autoPlayTimer = setTimeout(() => {
-                    const idx = Math.floor(Math.random() * this.playlist.length);
-                    this._playIndex(idx);
-                }, 10000);
+            const res = await fetch('music/index.json?' + Date.now());
+            if (res.ok) {
+                const data = await res.json();
+                if (data.files && data.files.length > 0) {
+                    this.playlist = data.files;
+                    this._renderTracks();
+                    this._updateBtn();
+                    // 自动播放第一首
+                    if (this.playlist.length > 0) {
+                        setTimeout(() => this._playIndex(0), 3000);
+                    }
+                    return;
+                }
             }
         } catch (e) {
-            console.warn('[BGM] 无法连接 TTS 服务器获取音乐列表:', e.message);
-            this._updateBtn();
+            console.warn('[BGM] 无法加载音乐列表:', e.message);
         }
+        // 回退：从 localStorage 恢复
+        try {
+            const saved = localStorage.getItem('bgm_playlist');
+            if (saved) {
+                this.playlist = JSON.parse(saved);
+                if (this.playlist.length > 0) {
+                    this._renderTracks();
+                    this._updateBtn();
+                }
+            }
+        } catch (e) {}
+        this._updateBtn();
     }
 
     // ========== 播放控制 ==========
     _playIndex(idx) {
         if (idx < 0 || idx >= this.playlist.length) return;
         const name = this.playlist[idx];
-        this.audio.src = 'music/' + encodeURIComponent(name);
+        // 优先使用 localStorage 中的数据，其次尝试 music/ 目录
+        const stored = localStorage.getItem('bgm_' + name);
+        if (stored) {
+            this.audio.src = stored;
+        } else {
+            this.audio.src = 'music/' + encodeURIComponent(name);
+        }
         this.audio.play().then(() => {
             this.playing = true;
             this.currentIdx = idx;
             this.currentName = name;
             this._updateBtn();
             this._renderTracks();
-        }).catch(() => {});
+        }).catch(() => {
+            // 如果文件不存在，从列表中移除
+            this.playlist.splice(idx, 1);
+            this._renderTracks();
+            this._updateBtn();
+        });
     }
 
     _togglePlay() {
@@ -178,24 +200,31 @@ export class BGMManager {
         });
     }
 
-    // ========== 上传 ==========
+    // ========== 上传（客户端本地加载） ==========
     async _uploadFile(file) {
-        const formData = new FormData();
-        formData.append('file', file);
-        try {
-            const res = await fetch(TTS_SERVER + '/upload-music', { method: 'POST', body: formData });
-            if (res.ok) {
-                const data = await res.json();
-                if (data.ok && !this.playlist.includes(data.name)) {
-                    this.playlist.push(data.name);
-                    this._renderTracks();
-                    if (this.currentIdx < 0) this._playIndex(this.playlist.length - 1);
-                    this._updateBtn();
+        return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const name = file.name;
+                const dataUrl = e.target.result;
+                // 存储到内存 + localStorage（保存文件名）
+                if (!this.playlist.includes(name)) {
+                    this.playlist.push(name);
+                    localStorage.setItem('bgm_playlist', JSON.stringify(this.playlist));
+                    // 存储文件数据到 localStorage（小于5MB的文件）
+                    if (dataUrl.length < 5 * 1024 * 1024) {
+                        try {
+                            localStorage.setItem('bgm_' + name, dataUrl);
+                        } catch (e) {}
+                    }
                 }
-            }
-        } catch (e) {
-            alert('上传失败：TTS 服务器未启动 (127.0.0.1:8765)');
-        }
+                this._renderTracks();
+                if (this.currentIdx < 0) this._playIndex(this.playlist.length - 1);
+                this._updateBtn();
+                resolve();
+            };
+            reader.readAsDataURL(file);
+        });
     }
 
     triggerUpload() { this.uploadInput.click(); }
@@ -206,17 +235,10 @@ export class BGMManager {
         const name = this.playlist[idx];
         const wasCurrent = idx === this.currentIdx;
 
-        try {
-            await fetch(TTS_SERVER + '/delete-music', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name }),
-            });
-        } catch (e) {
-            console.warn('[BGM] 删除文件失败:', e.message);
-        }
-
+        // 从 localStorage 中移除
+        localStorage.removeItem('bgm_' + name);
         this.playlist.splice(idx, 1);
+        localStorage.setItem('bgm_playlist', JSON.stringify(this.playlist));
         if (wasCurrent) {
             this.audio.pause();
             this.playing = false;

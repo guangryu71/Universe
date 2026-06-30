@@ -125,7 +125,7 @@ function showChatWindow() {
 
     input.disabled = false;
     input.focus();
-    status.textContent = '● 在线';
+    if (status) status.textContent = '● 在线';
 }
 
 // ==================== 发送消息 ====================
@@ -156,7 +156,8 @@ async function sendMessage() {
 
     isStreaming = true;
     input.disabled = true;
-    document.getElementById('chat-status').textContent = '◇ 思考中...';
+    const cs = document.getElementById('chat-status');
+    if (cs) cs.textContent = '◇ 思考中...';
 
     const aiBubble = createAIBubble();
     let firstToken = true;
@@ -165,10 +166,13 @@ async function sendMessage() {
         messages,
         (token) => {
             aiBubble.textContent += token;
+            // 打字机音效
+            const sm = window.__soundManager;
+            if (sm && sm.isReady()) sm.playTypewriter(1);
             scrollBottom();
             if (firstToken) {
                 firstToken = false;
-                document.getElementById('chat-status').textContent = '◆ 回复中';
+                const cs2 = document.getElementById('chat-status'); if (cs2) cs2.textContent = '◆ 回复中';
             }
         },
         (fullText) => {
@@ -182,7 +186,7 @@ async function sendMessage() {
             aiBubble.textContent += `\n\n[错误] ${err.message}`;
             aiBubble.style.color = '#f44';
             finishStream();
-            document.getElementById('chat-status').textContent = '● 在线';
+            const cs3 = document.getElementById('chat-status'); if (cs3) cs3.textContent = '● 在线';
         },
         getPrompt()
     );
@@ -193,7 +197,7 @@ function finishStream() {
     const input = document.getElementById('chat-input');
     input.disabled = false;
     input.focus();
-    document.getElementById('chat-status').textContent = '● 在线';
+    const cs4 = document.getElementById('chat-status'); if (cs4) cs4.textContent = '● 在线';
     scrollBottom();
 }
 
@@ -290,5 +294,42 @@ function scrollBottom() {
 
 document.getElementById('chat-close-btn').addEventListener('click', closeOverlay);
 document.getElementById('chat-close-btn2').addEventListener('click', closeOverlay);
-// 点击背景关闭
-document.querySelector('.chat-backdrop').addEventListener('click', closeOverlay);
+// 点击背景关闭（点击chat窗口外部任意位置）
+document.getElementById('chat-overlay').addEventListener('click', (e) => {
+    if (e.target === e.currentTarget) closeOverlay();
+});
+// 阻止chat窗口内点击冒泡到overlay
+['chat-login', 'chat-window'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('click', (e) => e.stopPropagation());
+});
+
+// ==================== 全息窗口拖拽 ====================
+const chatWindow = document.getElementById('chat-window');
+const dragHandle = document.getElementById('chatDragHandle');
+let dragging = false, dragSX, dragSY, dragIL, dragIT;
+
+dragHandle.addEventListener('pointerdown', (e) => {
+    dragging = true;
+    dragHandle.setPointerCapture(e.pointerId);
+    const r = chatWindow.getBoundingClientRect();
+    dragSX = e.clientX; dragSY = e.clientY;
+    dragIL = r.left + r.width / 2; dragIT = r.top + r.height / 2;
+    chatWindow.style.transition = 'none';
+});
+document.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    chatWindow.style.left = `${dragIL + e.clientX - dragSX}px`;
+    chatWindow.style.top = `${dragIT + e.clientY - dragSY}px`;
+    chatWindow.style.transform = 'translate(-50%, -50%)';
+});
+document.addEventListener('pointerup', () => { dragging = false; });
+
+// ==================== TRANSMIT 按钮 ====================
+document.getElementById('chat-send-btn')?.addEventListener('click', () => {
+    const input = document.getElementById('chat-input');
+    if (!input.disabled && input.value.trim()) {
+        const event = new KeyboardEvent('keydown', { key: 'Enter' });
+        input.dispatchEvent(event);
+    }
+});

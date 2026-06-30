@@ -18,6 +18,9 @@ export const DAY = 86400;
 // 视觉缩放：物理位置 → 3D 位置缩放因子（1 AU ≈ 22 个 3D 单位）
 export const POS_SCALE = 22 / AU;
 
+// 星体系统整体放大倍率（增大星体相对飞船的视觉大小）
+export const SYSTEM_SCALE = 20;
+
 // 模拟参数：每帧模拟时间步长（秒），约半天
 export const SIM_DT = 43200;
 

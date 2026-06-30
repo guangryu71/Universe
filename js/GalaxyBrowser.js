@@ -50,21 +50,30 @@ export class GalaxyBrowser {
         this.overlay.className = 'galaxy-browser-overlay hidden';
         this.overlay.innerHTML = `
             <div class="galaxy-browser-backdrop"></div>
-            <div class="galaxy-browser-panel">
-                <div class="galaxy-browser-header">
-                    <span>🌌 单恒星系统浏览器</span>
-                    <button class="galaxy-browser-close" id="galaxy-browser-close">&times;</button>
+            <div class="scanline"></div>
+            <div class="fui-window">
+                <div class="fui-header">
+                    <div class="fui-title">STELLAR_SYS_BROWSER</div>
+                    <div class="fui-search-box">
+                        <svg class="search-icon" viewBox="0 0 24 24" width="16" height="16">
+                            <path d="M15.5 14h-.79l-.28-.27C15.46 12.68 16 11.12 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.62 0 3.18-.54 4.22-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/>
+                        </svg>
+                        <input type="text" class="fui-search-input" id="galaxy-search-input" placeholder="SEARCH_TARGET_SYSTEM..." autocomplete="off" />
+                    </div>
+                    <button class="galaxy-browser-close" id="galaxy-browser-close">✕</button>
                 </div>
-                <div class="galaxy-browser-search">
-                    <span class="galaxy-search-icon">🔍</span>
-                    <input type="text" id="galaxy-search-input" placeholder="搜索单恒星系统或星球（关键词）..." autocomplete="off" />
-                </div>
-                <div class="galaxy-browser-list" id="galaxy-browser-list">
+                <div class="fui-content galaxy-browser-list" id="galaxy-browser-list">
                     <div class="galaxy-browser-empty">加载中...</div>
                 </div>
-                <div class="galaxy-browser-footer">
-                    <button class="galaxy-browser-add-btn" id="galaxy-browser-add-btn">➕ 添加单恒星系统</button>
-                    <button class="galaxy-browser-add-btn" id="galaxy-browser-exoplanet-btn" style="display:none;">🪐 添加系外行星（开发中）</button>
+                <div class="glitch-btn-wrapper" id="addBtnWrapper">
+                    <button class="fui-glitch-btn" id="galaxy-browser-add-btn"><span>+ ADD_NEW_STELLAR_SYSTEM</span></button>
+                    <div class="glitch-layer"><button class="fui-glitch-btn"><span>+ ADD_NEW_STELLAR_SYSTEM</span></button></div>
+                    <div class="glitch-layer"><button class="fui-glitch-btn"><span>+ ADD_NEW_STELLAR_SYSTEM</span></button></div>
+                    <div class="glitch-layer"><button class="fui-glitch-btn"><span>+ ADD_NEW_STELLAR_SYSTEM</span></button></div>
+                    <div class="btn-deco bd-tl-h"></div>
+                    <div class="btn-deco bd-tl-v"></div>
+                    <div class="btn-deco bd-br-h"></div>
+                    <div class="btn-deco bd-br-v"></div>
                 </div>
             </div>
         `;
@@ -120,6 +129,8 @@ export class GalaxyBrowser {
                         <span><label>Y (AU)</label><input id="ag-star-y" type="number" value="0" step="1" /></span>
                         <span><label>Z (AU)</label><input id="ag-star-z" type="number" value="0" step="1" /></span>
                     </div>
+                    <div class="ag-row"><label>详情描述</label><textarea id="ag-star-details" rows="2" placeholder="恒星详情描述（可选，留空自动生成）"></textarea></div>
+                    <div class="ag-row"><label>语音简介</label><textarea id="ag-star-voice" rows="1" placeholder="TTS 朗读文本（可选，留空自动生成）"></textarea></div>
                 </div>
                 <div class="ag-section">
                     <div class="ag-section-title">
@@ -165,6 +176,9 @@ export class GalaxyBrowser {
                 }
             }
         });
+
+        // --- Glitch 按钮效果 ---
+        this._setupGlitchEffect();
     }
 
     // ==================== 显示/隐藏 ====================
@@ -235,30 +249,33 @@ export class GalaxyBrowser {
         const otherPlanets = g.planets?.filter(p => !p.isStar) || [];
 
         return `
-        <div class="gb-galaxy-card" data-galaxy-id="${g.id}">
-            <div class="gb-galaxy-header">
+        <div class="fui-item gb-galaxy-card" data-galaxy-id="${g.id}">
+            <div class="item-header gb-galaxy-header">
                 <span class="gb-galaxy-icon">${g.icon || '🌟'}</span>
-                <div class="gb-galaxy-info">
-                    <span class="gb-galaxy-name">${g.name}</span>
-                    <span class="gb-galaxy-name-cn">${g.nameCN}</span>
+                <div class="item-info">
+                    <span class="item-label">${g.name} <small style="color:var(--text-dim);font-size:12px;font-family:var(--font-body);">// ${g.nameCN}</small></span>
+                    <span class="item-desc">${g.description}</span>
                 </div>
                 <span class="gb-galaxy-count">${planetCount} 天体</span>
-                ${g.isBuiltIn ? '<span class="gb-badge-builtin">内置</span>' : `<button class="gb-delete-galaxy" data-galaxy-id="${g.id}" title="删除星系">🗑</button>`}
+                ${g.isBuiltIn ? '<span class="gb-badge-builtin">BUILT_IN</span>' : `<button class="gb-delete-galaxy" data-galaxy-id="${g.id}" title="DELETE_SYSTEM">✕</button>`}
             </div>
-            <div class="gb-galaxy-desc">${g.description}</div>
-            <div class="gb-planet-list">
-                ${starPlanet ? `
-                <div class="gb-planet-item gb-planet-star" data-planet-key="${starPlanet.key}">
-                    <span class="gb-planet-dot" style="background:${starPlanet.color}"></span>
-                    <span>${starPlanet.name}</span>
-                    <span class="gb-planet-tag">恒星</span>
-                </div>` : ''}
-                ${otherPlanets.map(p => `
-                <div class="gb-planet-item" data-planet-key="${p.key}">
-                    <span class="gb-planet-dot" style="background:${p.color}"></span>
-                    <span>${p.name}</span>
-                    <span class="gb-planet-tag">${(p.mass / 1e24).toFixed(1)}e24 kg</span>
-                </div>`).join('')}
+            <div class="item-body">
+                <div class="subitems-grid gb-planet-list">
+                    ${starPlanet ? `
+                    <div class="subitem gb-planet-item" data-planet-key="${starPlanet.key}">
+                        <span class="dot dot-star"></span>
+                        <span class="sub-name">${starPlanet.name}</span>
+                        <span class="sub-type">STAR</span>
+                        <span class="sub-val">${(starPlanet.mass / 1e30).toFixed(1)} M☉</span>
+                    </div>` : ''}
+                    ${otherPlanets.map(p => `
+                    <div class="subitem gb-planet-item" data-planet-key="${p.key}">
+                        <span class="dot" style="background:${p.color}"></span>
+                        <span class="sub-name">${p.name}</span>
+                        <span class="sub-type">PLANET</span>
+                        <span class="sub-val">${(p.mass / 1e24).toFixed(1)}e24 kg</span>
+                    </div>`).join('')}
+                </div>
             </div>
         </div>`;
     }
@@ -289,8 +306,21 @@ export class GalaxyBrowser {
             <div class="ag-row"><label>颜色</label><input class="ag-p-color" type="color" value="${this._randomPlanetColor()}" /></div>
             <div class="ag-row"><label>视觉大小</label><input class="ag-p-visual" type="number" value="0.5" step="0.1" min="0.1" /></div>
             <div class="ag-row"><label>贴图</label><input class="ag-p-texture" type="file" accept="image/*" style="font-size:10px;" /></div>
+            <div class="ag-row"><label>详情描述</label><textarea class="ag-p-details" rows="2" placeholder="行星详情描述（可选，留空自动生成）"></textarea></div>
+            <div class="ag-row"><label>语音简介</label><textarea class="ag-p-voice" rows="1" placeholder="TTS 朗读文本（可选，留空自动生成）"></textarea></div>
+            <div class="ag-moon-toggle-wrap">
+                <button class="ag-moon-toggle-btn" type="button">🌙 卫星管理 <span class="ag-moon-arrow">▸</span></button>
+            </div>
+            <div class="ag-moon-section hidden">
+                <div class="ag-moon-header">
+                    <span>🛰️ 卫星列表</span>
+                    <button class="ag-add-moon-btn" type="button">+ 添加卫星</button>
+                </div>
+                <div class="ag-moon-list" data-planet-idx="${idx}">
+                    <div class="ag-moon-empty">尚未添加卫星，点击上方按钮添加</div>
+                </div>
+            </div>
         `;
-        // 移除空状态提示
         const empty = this.agPlanetList.querySelector('.ag-planet-empty');
         if (empty) empty.remove();
 
@@ -303,6 +333,45 @@ export class GalaxyBrowser {
                 this.agPlanetList.innerHTML = '<div class="ag-planet-empty">尚未添加行星，点击上方按钮添加</div>';
             }
         });
+
+        // 卫星展开/收起
+        const toggleBtn = row.querySelector('.ag-moon-toggle-btn');
+        const moonSection = row.querySelector('.ag-moon-section');
+        toggleBtn.addEventListener('click', () => {
+            moonSection.classList.toggle('hidden');
+            toggleBtn.querySelector('.ag-moon-arrow').textContent = moonSection.classList.contains('hidden') ? '▸' : '▾';
+        });
+
+        // 添加卫星
+        const addMoonBtn = row.querySelector('.ag-add-moon-btn');
+        const moonList = row.querySelector('.ag-moon-list');
+        let moonCounter = 0;
+        addMoonBtn.addEventListener('click', () => {
+            moonCounter++;
+            const emptyMoon = moonList.querySelector('.ag-moon-empty');
+            if (emptyMoon) emptyMoon.remove();
+            const moonRow = document.createElement('div');
+            moonRow.className = 'ag-moon-row';
+            moonRow.innerHTML = `
+                <div class="ag-moon-row-header">
+                    <span>🛰️ 卫星 #${moonCounter}</span>
+                    <button class="ag-remove-moon" type="button">✕</button>
+                </div>
+                <div class="ag-row"><label>名称</label><input class="ag-m-name" value="卫星${moonCounter}" /></div>
+                <div class="ag-row"><label>质量 (kg)</label><input class="ag-m-mass" type="number" value="7.35e22" step="any" /></div>
+                <div class="ag-row"><label>半径 (km)</label><input class="ag-m-radius" type="number" value="1737" step="any" /></div>
+                <div class="ag-row"><label>轨道半径 (场景单位)</label><input class="ag-m-orbit" type="number" value="3.8" step="0.1" min="0.1" /></div>
+                <div class="ag-row"><label>轨道速度</label><input class="ag-m-speed" type="number" value="1.0" step="0.1" min="0.1" /></div>
+                <div class="ag-row"><label>颜色</label><input class="ag-m-color" type="color" value="#aaaaaa" /></div>
+            `;
+            moonRow.querySelector('.ag-remove-moon').addEventListener('click', () => {
+                moonRow.remove();
+                if (moonList.querySelectorAll('.ag-moon-row').length === 0) {
+                    moonList.innerHTML = '<div class="ag-moon-empty">尚未添加卫星，点击上方按钮添加</div>';
+                }
+            });
+            moonList.appendChild(moonRow);
+        });
     }
 
     _randomPlanetColor() {
@@ -311,10 +380,12 @@ export class GalaxyBrowser {
     }
 
     async _confirmCreateGalaxy() {
-        // --- 读取星系信息 ---
-        const galaxyName   = document.getElementById('ag-name').value.trim() || '新星系';
-        const galaxyNameCN = document.getElementById('ag-name-cn').value.trim() || 'New Galaxy';
+        // --- 读取星系信息（强制填写名称和英文名）---
+        const galaxyName   = document.getElementById('ag-name').value.trim();
+        const galaxyNameCN = document.getElementById('ag-name-cn').value.trim();
         const galaxyDesc   = document.getElementById('ag-desc').value.trim() || '';
+        if (!galaxyName) { alert('⚠️ 请填写单恒星系统名称'); return; }
+        if (!galaxyNameCN) { alert('⚠️ 请填写英文名（用于文件夹命名）'); return; }
 
         // --- 读取恒星信息 ---
         const starName  = document.getElementById('ag-star-name').value.trim() || '新恒星';
@@ -329,6 +400,15 @@ export class GalaxyBrowser {
         const starTexFile = document.getElementById('ag-star-texture')?.files?.[0];
         const starTexBase64 = await this._fileToBase64(starTexFile);
 
+        // 恒星用户描述（可选）
+        const starDetailsInput = document.getElementById('ag-star-details');
+        const starVoiceInput   = document.getElementById('ag-star-voice');
+        const starUserDetails  = starDetailsInput ? starDetailsInput.value.trim() : '';
+        const starUserVoice    = starVoiceInput ? starVoiceInput.value.trim() : '';
+        // 自动生成恒星物理描述
+        const autoStarDetails = `${starName} — ${galaxyName}的中心恒星。质量${(starMass / 1e30).toFixed(2)}×10³⁰kg(${(starMass / 1.989e30).toFixed(2)}M☉)，半径${(starRadius).toFixed(0)}km。`;
+        const autoStarVoice   = `${starName}，${galaxyName}的中心恒星。`;
+
         // --- 读取行星信息 ---
         const planetEntries = [];
         const planetRows = this.agPlanetList.querySelectorAll('.ag-planet-row');
@@ -342,6 +422,33 @@ export class GalaxyBrowser {
             const pTexFile = row.querySelector('.ag-p-texture')?.files?.[0];
             const pTexBase64 = await this._fileToBase64(pTexFile);
 
+            // 用户输入描述（可选）
+            const pDetailsEl = row.querySelector('.ag-p-details');
+            const pVoiceEl   = row.querySelector('.ag-p-voice');
+            const pUserDetails = pDetailsEl ? pDetailsEl.value.trim() : '';
+            const pUserVoice   = pVoiceEl ? pVoiceEl.value.trim() : '';
+            const pIdx = planetEntries.length + 1;
+            // 自动生成物理描述
+            const autoDetails = `${pName} — ${galaxyName}的第${pIdx}颗行星。${pMass > 1e27 ? '气态巨行星' : pMass > 1e25 ? '类地行星' : '小型天体'}。` +
+                          `质量${(pMass / 1e24).toFixed(2)}×10²⁴kg，半径${pRadius}km，轨道半径${pOrbit}AU。`;
+            const autoVoice = `${pName}，行星，距恒星${pOrbit}天文单位。`;
+
+            // 读取该行星的卫星数据
+            const moonList = row.querySelector('.ag-moon-list');
+            const moons = [];
+            if (moonList) {
+                moonList.querySelectorAll('.ag-moon-row').forEach(mRow => {
+                    moons.push({
+                        name: (mRow.querySelector('.ag-m-name')?.value || '').trim() || '卫星',
+                        mass: parseFloat(mRow.querySelector('.ag-m-mass')?.value) || 7.35e22,
+                        radius: parseFloat(mRow.querySelector('.ag-m-radius')?.value) || 1737,
+                        orbitRadius: parseFloat(mRow.querySelector('.ag-m-orbit')?.value) || 3.8,
+                        orbitSpeed: parseFloat(mRow.querySelector('.ag-m-speed')?.value) || 1.0,
+                        color: mRow.querySelector('.ag-m-color')?.value || '#aaaaaa',
+                    });
+                });
+            }
+
             planetEntries.push({
                 name: pName,
                 mass: pMass,
@@ -351,11 +458,30 @@ export class GalaxyBrowser {
                 color: pColor,
                 textureData: pTexBase64 || null,
                 textureName: pTexFile?.name || null,
+                details: pUserDetails || autoDetails,
+                voiceIntro: pUserVoice || autoVoice,
+                moons: moons, // 卫星列表（持久化存储）
             });
+        }
+
+        // --- 生成文件夹名（英文名 → 安全标识符）---
+        const folderId = (galaxyNameCN || galaxyName)
+            .toLowerCase()
+            .replace(/[^a-z0-9一-鿿]+/g, '_')
+            .replace(/^_|_$/g, '')
+            .slice(0, 60) || 'galaxy_' + Date.now();
+
+        // --- 同名检测（Galaxy/ + Galaxy/custom/ 下所有文件夹名）---
+        const allGalaxies = getAllGalaxies();
+        const existingIds = allGalaxies.map(g => g.id);
+        if (existingIds.includes(folderId)) {
+            alert(`⚠️ 星系 "${galaxyNameCN || galaxyName}" 已存在，请使用不同的英文名`);
+            return;
         }
 
         // --- 尝试通过服务器创建星系文件夹 ---
         const serverResult = await createGalaxyOnServer({
+            id: folderId,
             name: galaxyName,
             nameCN: galaxyNameCN,
             description: galaxyDesc,
@@ -370,16 +496,18 @@ export class GalaxyBrowser {
                 z: starPosZ,
                 textureData: starTexBase64 || null,
                 textureName: starTexFile?.name || null,
+                details: starUserDetails || autoStarDetails,
+                voiceIntro: starUserVoice || autoStarVoice,
             },
             planets: planetEntries,
         });
 
         if (serverResult.ok) {
-            console.log(`[GalaxyBrowser] 服务器创建星系成功: ${serverResult.id}`);
+            console.log(`[GalaxyBrowser] 服务器创建星系成功: ${serverResult.id} -> Galaxy/custom/${folderId}/`);
 
             // 动态导入新创建的模块
             try {
-                const modulePath = `../Galaxy/${serverResult.id}/index.js?t=${Date.now()}`;
+                const modulePath = `../Galaxy/custom/${serverResult.id}/index.js?t=${Date.now()}`;
                 const galaxyModule = await import(modulePath);
 
                 // 注册为模块供 SystemManager 使用
@@ -415,7 +543,7 @@ export class GalaxyBrowser {
                     name: galaxyName, nameCN: galaxyNameCN,
                     description: galaxyDesc, icon: '🌟',
                     planets: allPlanetInfos,
-                });
+                }, serverResult.id);
 
                 console.log(`[GalaxyBrowser] 星系 "${galaxyName}" 创建完成`);
             } catch (importErr) {
@@ -446,12 +574,21 @@ export class GalaxyBrowser {
         const starKey = galaxyId + '_star';
         const starSIPos = { x: starPosX * AU, y: starPosY * AU, z: starPosZ * AU };
 
+        // 读取恒星用户描述（可能不存在于回退场景）
+        const starDetailsInput = document.getElementById('ag-star-details');
+        const starVoiceInput   = document.getElementById('ag-star-voice');
+        const starUserDetails = starDetailsInput ? starDetailsInput.value.trim() : '';
+        const starUserVoice   = starVoiceInput ? starVoiceInput.value.trim() : '';
+        const autoStarDetails = `${starName} — ${galaxyName}的中心恒星。质量${(starMass / 1e30).toFixed(2)}×10³⁰kg。`;
+        const autoStarVoice   = `${starName}，${galaxyName}的中心恒星。`;
+
         const starPlanetInfo = {
             key: starKey, name: starName, nameCN: starName,
             mass: starMass, radius: starRadius, orbitRadius: 0,
             visualRadius: starVisual, color: starColor,
-            details: `${starName} — ${galaxyName}的中心恒星。`,
-            voiceIntro: '', isStar: true, _siPosition: starSIPos,
+            details: starUserDetails || autoStarDetails,
+            voiceIntro: starUserVoice || autoStarVoice,
+            isStar: true, _siPosition: starSIPos,
         };
 
         const planetInfos = planetEntries.map((p, i) => ({
@@ -459,8 +596,9 @@ export class GalaxyBrowser {
             name: p.name, nameCN: p.name,
             mass: p.mass, radius: p.radius, orbitRadius: p.orbitRadius,
             visualRadius: p.visualRadius, color: p.color,
-            details: `${p.name} — ${galaxyName}的行星。`,
-            voiceIntro: '', isStar: false,
+            details: p.details || `${p.name} — ${galaxyName}的第${i+1}颗行星。`,
+            voiceIntro: p.voiceIntro || `${p.name}，${galaxyName}的行星。`,
+            isStar: false,
         }));
 
         const allPlanetInfos = [starPlanetInfo, ...planetInfos];
@@ -495,9 +633,11 @@ export class GalaxyBrowser {
         });
     }
 
-    /** 将星系数据实例化为 CelestialBody 并加入物理引擎 */
+    /** 将星系数据实例化为独立系统组 */
     _instantiateGalaxy(galaxyId, starSIPos, starInfo, planetInfos, starMass) {
         const createdKeys = [];
+        const galaxyGroup = new THREE.Group();
+        galaxyGroup.visible = false; // 默认隐藏，由 SystemManager 控制显示
 
         // --- 创建恒星 ---
         const starBody = new CelestialBody({
@@ -516,9 +656,9 @@ export class GalaxyBrowser {
         starBody.position.set(starSIPos.x, starSIPos.y, starSIPos.z);
         starBody.velocity.set(0, 0, 0);
         starBody._syncMeshPosition();
+        this._moveBodyToGroup(starBody, galaxyGroup);
 
         this.planets[starInfo.key] = starBody;
-        this.physics.addBody(starBody);
         createdKeys.push(starInfo.key);
 
         // --- 创建行星 ---
@@ -537,25 +677,55 @@ export class GalaxyBrowser {
                 scene: this.scene,
             });
 
-            // 位置 = 恒星位置 + 轨道偏移（XZ 平面）
             const orbitR = pInfo.orbitRadius;
-            body.position.set(
-                starSIPos.x + orbitR,
-                starSIPos.y,
-                starSIPos.z,
-            );
-
-            // 设置圆形轨道速度（绕恒星）
+            body.position.set(starSIPos.x + orbitR, starSIPos.y, starSIPos.z);
             body.setCircularOrbitVelocity(starMass);
             body._syncMeshPosition();
+            this._moveBodyToGroup(body, galaxyGroup);
 
             this.planets[pInfo.key] = body;
-            this.physics.addBody(body);
             createdKeys.push(pInfo.key);
+
+            // --- 创建该行星的卫星 ---
+            const moons = pInfo.moons || [];
+            moons.forEach((mData, mi) => {
+                const moonKey = pInfo.key + '_moon_' + mi;
+                const moonGeo = new THREE.SphereGeometry(Math.max(0.05, mData.radius / 10000), 16, 16);
+                const moonMat = new THREE.MeshStandardMaterial({ color: mData.color || '#aaaaaa', roughness: 0.7, metalness: 0.1 });
+                const moonMesh = new THREE.Mesh(moonGeo, moonMat);
+                const moonOrbit = mData.orbitRadius || 3;
+                const moonSpeed = mData.orbitSpeed || 1;
+                const moonAngle = Math.random() * Math.PI * 2;
+                moonMesh.userData = {
+                    planetKey: pInfo.key, moonKey, orbitRadius: moonOrbit,
+                    orbitSpeed: moonSpeed, angle: moonAngle, name: mData.name || '卫星',
+                };
+                galaxyGroup.add(moonMesh);
+                createdKeys.push(moonKey);
+                // 暂存到 planets（便于后续查找）
+                if (!this.planets[moonKey]) {
+                    this.planets[moonKey] = { key: moonKey, name: mData.name || '卫星', mesh: moonMesh, isMoon: true };
+                }
+            });
         });
 
-        // 追踪
+        // 注册到 SystemManager（独立组，不直接加入场景）
+        if (this.systemManager) {
+            this.systemManager.registerSystemGroup(galaxyId, galaxyGroup, createdKeys);
+        }
+
         this._customBodies.push({ galaxyId, keys: createdKeys });
+    }
+
+    /** 将 CelestialBody 的所有 Mesh 移到指定 Group */
+    _moveBodyToGroup(body, group) {
+        const meshes = [body.mesh, body.ringMesh, body.glowMesh, body.cloudMesh, body.labelSprite];
+        for (const m of meshes) {
+            if (m && m.parent) {
+                m.parent.remove(m);
+                group.add(m);
+            }
+        }
     }
 
     /** 页面加载时恢复所有自定义星系的天体实例（服务器 + localStorage） */
@@ -574,7 +744,7 @@ export class GalaxyBrowser {
                 if (knownPlanetKeys.has(sg.id) || knownPlanetKeys.has(sg.id + '_star')) continue;
 
                 try {
-                    const modPath = `../Galaxy/${sg.id}/index.js?t=${Date.now()}`;
+                    const modPath = `../Galaxy/custom/${sg.id}/index.js?t=${Date.now()}`;
                     const mod = await import(modPath);
                     if (mod.createPlanets) {
                         const newBodies = mod.createPlanets(this.scene, this.planets);
@@ -629,6 +799,26 @@ export class GalaxyBrowser {
         const entry = this._customBodies.find(c => c.galaxyId === galaxyId);
         if (!entry) return;
 
+        // 从 SystemManager 移除系统组
+        if (this.systemManager && this.systemManager._systemGroups) {
+            const group = this.systemManager._systemGroups[galaxyId];
+            if (group) {
+                group.parent?.remove(group);
+                // 递归释放组内所有 mesh
+                group.traverse(child => {
+                    if (child.isMesh) {
+                        child.geometry?.dispose();
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material?.dispose();
+                        }
+                    }
+                });
+                delete this.systemManager._systemGroups[galaxyId];
+            }
+        }
+
         entry.keys.forEach(key => {
             const body = this.planets[key];
             if (body) {
@@ -639,5 +829,52 @@ export class GalaxyBrowser {
         });
 
         this._customBodies = this._customBodies.filter(c => c.galaxyId !== galaxyId);
+    }
+
+    // ==================== ⚡ Glitch 按钮特效 ====================
+    _setupGlitchEffect() {
+        const glitchWrapper = this.overlay.querySelector('#addBtnWrapper');
+        if (!glitchWrapper) return;
+        const glitchBtn = glitchWrapper.querySelector('.fui-glitch-btn');
+
+        let hoverGlitchInterval = null;
+
+        glitchBtn.addEventListener('mouseenter', () => {
+            this._triggerGlitch(glitchWrapper, 300);
+            hoverGlitchInterval = setInterval(() => {
+                if (Math.random() > 0.5) this._triggerGlitch(glitchWrapper, 150 + Math.random() * 200);
+            }, 400);
+        });
+
+        // 点击时触发强故障
+        glitchBtn.addEventListener('click', () => {
+            this._triggerGlitch(glitchWrapper, 400);
+        });
+
+        glitchBtn.addEventListener('mouseleave', () => {
+            clearInterval(hoverGlitchInterval);
+            glitchWrapper.classList.remove('is-glitching');
+        });
+
+        // 空闲时随机故障
+        const scheduleNext = () => {
+            const delay = 2000 + Math.random() * 5000;
+            setTimeout(() => {
+                if (!glitchWrapper.matches(':hover')) {
+                    this._triggerGlitch(glitchWrapper, 100 + Math.random() * 250);
+                }
+                scheduleNext();
+            }, delay);
+        };
+        scheduleNext();
+    }
+
+    _triggerGlitch(wrapper, duration = 200) {
+        wrapper.classList.add('is-glitching');
+        const offset = 2 + Math.random() * 6;
+        wrapper.style.setProperty('--glitch-offset', `${offset}px`);
+        setTimeout(() => {
+            wrapper.classList.remove('is-glitching');
+        }, duration);
     }
 }

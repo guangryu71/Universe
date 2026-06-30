@@ -68,68 +68,41 @@ function _rebuildBuiltIn() {
 
 // ==================== 自定义星系持久化 ====================
 
+const API_BASE = '';
 const STORAGE_KEY = 'universe_custom_galaxies';
 let customGalaxies = storageLoad(STORAGE_KEY, []);
 
-// ==================== 服务器端扫描 ====================
+// ==================== 服务器端 API（Galaxy/custom/）====================
 
-const API_BASE = 'http://127.0.0.1:8765';
+const _api = (path, data) =>
+    fetch(API_BASE + path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+    }).then(r => r.json()).catch(() => ({ ok: false, error: '服务器不可用' }));
 
 /**
- * 从服务器扫描 Galaxy/ 目录，获取所有可用星系列表
- * 用于发现后续手动添加的系统文件夹
+ * 从服务器扫描 Galaxy/custom/ 目录
  * @returns {Promise<Array<{id: string, name: string}>>}
  */
 export async function fetchServerGalaxies() {
-    try {
-        const resp = await fetch(`${API_BASE}/list-galaxies`);
-        if (!resp.ok) return [];
-        const data = await resp.json();
-        return data.galaxies || [];
-    } catch (e) {
-        console.warn('[galaxyRegistry] 服务器扫描失败，仅使用内置模块:', e.message);
-        return [];
-    }
+    const res = await _api('/api/list-galaxies', {});
+    return res.galaxies || [];
 }
 
 /**
- * 通过服务器创建新的星系文件夹
- * @param {object} params
- * @param {string} params.name  - 星系中文名
- * @param {string} params.nameCN - 星系英文名
- * @param {string} params.description
- * @param {object} params.star    - { name, mass, radius, color, visualRadius, x, y, z, texture? }
- * @param {Array}  params.planets - [{ name, mass, radius, orbitRadius, color, visualRadius, texture? }]
+ * 通过服务器在 Galaxy/custom/ 创建星系文件夹
  * @returns {Promise<object>} { ok, id?, error? }
  */
 export async function createGalaxyOnServer(params) {
-    try {
-        const resp = await fetch(`${API_BASE}/create-galaxy`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(params),
-        });
-        return await resp.json();
-    } catch (e) {
-        return { ok: false, error: e.message };
-    }
+    return await _api('/api/create-galaxy', params);
 }
 
 /**
- * 从服务器删除星系文件夹
- * @param {string} id - 星系ID
+ * 从服务器删除 Galaxy/custom/ 中星系文件夹
  */
 export async function deleteGalaxyOnServer(id) {
-    try {
-        const resp = await fetch(`${API_BASE}/delete-galaxy`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ id }),
-        });
-        return await resp.json();
-    } catch (e) {
-        return { ok: false, error: e.message };
-    }
+    return await _api('/api/delete-galaxy', { id });
 }
 
 // ==================== 公开 API ====================
@@ -160,9 +133,9 @@ export function getGalaxyById(id) {
 }
 
 /** 添加自定义星系（纯数据，不创建 Three.js 对象） */
-export function addCustomGalaxy(galaxyData) {
+export function addCustomGalaxy(galaxyData, customId) {
     const galaxy = {
-        id: 'custom_galaxy_' + Date.now(),
+        id: customId || galaxyData.id || 'custom_galaxy_' + Date.now(),
         name:        galaxyData.name || '新星系',
         nameCN:      galaxyData.nameCN || 'New Galaxy',
         description: galaxyData.description || '',

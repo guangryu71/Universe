@@ -8,6 +8,7 @@
 
 import * as THREE from 'three';
 import { colorToHex } from './utils.js';
+import { SYSTEM_SCALE } from './constants.js';
 
 export class MoonBody {
     /**
@@ -36,10 +37,10 @@ export class MoonBody {
         this.mass         = Cls.MASS;
         this.radius       = Cls.RADIUS;
         this.parentKey    = Cls.PARENT_KEY;
-        this.orbitRadius  = Cls.ORBIT_RADIUS;     // 场景单位
+        this.orbitRadius  = Cls.ORBIT_RADIUS * SYSTEM_SCALE;     // 场景单位
         this.orbitSpeed   = Cls.ORBIT_SPEED;       // rad/s
         this.orbitPhase   = Math.random() * Math.PI * 2; // 随机初始相位
-        this.visualRadius = Cls.VISUAL_RADIUS;
+        this.visualRadius = Cls.VISUAL_RADIUS * SYSTEM_SCALE;
         this.color        = Cls.COLOR;
         this.details      = Cls.DETAILS || '';
         this.voiceIntro   = Cls.VOICE_INTRO || '';

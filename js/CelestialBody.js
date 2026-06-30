@@ -5,7 +5,7 @@
 // ============================================================
 
 import * as THREE from 'three';
-import { POS_SCALE } from './constants.js';
+import { POS_SCALE, SYSTEM_SCALE } from './constants.js';
 
 const textureLoader = new THREE.TextureLoader();
 
@@ -109,6 +109,8 @@ export class CelestialBody {
         this.mesh.receiveShadow = true;
         this.mesh.userData = { celestialBody: this };
         this.scene.add(this.mesh);
+        // 星体整体放大
+        this.mesh.scale.setScalar(SYSTEM_SCALE);
         this._syncMeshPosition();
     }
 
@@ -167,13 +169,13 @@ export class CelestialBody {
         this.velocity.copy(dir.multiplyScalar(speed));
     }
 
-    // ---------- 同步物理 → 3D ----------
+    // ---------- 同步物理 → 3D（位置和尺寸均乘以 SYSTEM_SCALE）----------
     _syncMeshPosition() {
         if (this.mesh) {
             this.mesh.position.set(
-                this.position.x * POS_SCALE,
-                this.position.y * POS_SCALE,
-                this.position.z * POS_SCALE
+                this.position.x * POS_SCALE * SYSTEM_SCALE,
+                this.position.y * POS_SCALE * SYSTEM_SCALE,
+                this.position.z * POS_SCALE * SYSTEM_SCALE
             );
         }
         if (this.ringMesh) {
