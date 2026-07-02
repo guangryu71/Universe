@@ -505,54 +505,39 @@ export class GalaxyBrowser {
         if (serverResult.ok) {
             console.log(`[GalaxyBrowser] 服务器创建星系成功: ${serverResult.id} -> Galaxy/custom/${folderId}/`);
 
-            // 动态导入新创建的模块
-            try {
-                const modulePath = `../Galaxy/custom/${serverResult.id}/index.js?t=${Date.now()}`;
-                const galaxyModule = await import(modulePath);
+            // 使用 serverResult.id 作为文件夹名，直接实例化 + 跳转
+            const starSIPos = { x: starPosX * AU, y: starPosY * AU, z: starPosZ * AU };
+            const starPlanetInfo = {
+                key: serverResult.id + '_star',
+                name: starName, nameCN: starName,
+                mass: starMass, radius: starRadius * 1000, orbitRadius: 0,
+                visualRadius: starVisual, color: starColor,
+                isStar: true, _siPosition: starSIPos,
+                details: starUserDetails || autoStarDetails,
+                voiceIntro: starUserVoice || autoStarVoice,
+            };
+            const planetInfos = planetEntries.map((p, i) => ({
+                key: serverResult.id + '_planet_' + i,
+                name: p.name, nameCN: p.name,
+                mass: p.mass, radius: p.radius, orbitRadius: p.orbitRadius,
+                visualRadius: p.visualRadius, color: p.color,
+                details: p.details || `${p.name} — ${galaxyName}的行星。`,
+                voiceIntro: p.voiceIntro || '',
+                moons: p.moons || [],
+                isStar: false,
+            }));
+            this._instantiateGalaxy(serverResult.id, starSIPos, starPlanetInfo, planetInfos, starMass);
 
-                // 注册为模块供 SystemManager 使用
-                if (this.systemManager) {
-                    this.systemManager.registerModule(serverResult.id, galaxyModule.createPlanets, galaxyModule.MOON_CLASSES);
-                    // 切换到新系统
-                    this.onNavigateToGalaxy(serverResult.id);
-                }
+            // 保存到 localStorage
+            const allInfos = [starPlanetInfo, ...planetInfos].map(p => ({ ...p }));
+            addCustomGalaxy({ name: galaxyName, nameCN: galaxyNameCN, description: galaxyDesc, icon: '🌟', planets: allInfos }, serverResult.id);
 
-                // 也保存到 localStorage（冗余备份）
-                const starSIPos = { x: starPosX * AU, y: starPosY * AU, z: starPosZ * AU };
-                const allPlanetInfos = [
-                    {
-                        key: serverResult.id + '_star',
-                        name: starName, nameCN: starName,
-                        mass: starMass, radius: starRadius * 1000, orbitRadius: 0,
-                        visualRadius: starVisual, color: starColor,
-                        isStar: true, _siPosition: starSIPos,
-                        details: `${starName} — ${galaxyName}的中心恒星。`,
-                        voiceIntro: '',
-                    },
-                    ...planetEntries.map((p, i) => ({
-                        key: serverResult.id + '_planet_' + i,
-                        name: p.name, nameCN: p.name,
-                        mass: p.mass, radius: p.radius, orbitRadius: p.orbitRadius,
-                        visualRadius: p.visualRadius, color: p.color,
-                        isStar: false,
-                        details: `${p.name} — ${galaxyName}的行星。`,
-                        voiceIntro: '',
-                    })),
-                ];
-                addCustomGalaxy({
-                    name: galaxyName, nameCN: galaxyNameCN,
-                    description: galaxyDesc, icon: '🌟',
-                    planets: allPlanetInfos,
-                }, serverResult.id);
-
-                console.log(`[GalaxyBrowser] 星系 "${galaxyName}" 创建完成`);
-            } catch (importErr) {
-                console.error('[GalaxyBrowser] 动态导入星系模块失败:', importErr);
-                // 回退到传统的 localStorage + 直接实例化
-                this._fallbackCreate(galaxyName, galaxyNameCN, galaxyDesc,
-                    starName, starMass, starRadius, starColor, starVisual,
-                    starPosX, starPosY, starPosZ, planetEntries);
+            // 切换到新系统
+            if (this.systemManager) {
+                this.onNavigateToGalaxy(serverResult.id);
             }
+
+            console.log(`[GalaxyBrowser] 星系 "${galaxyName}" 创建并加载完成`);
         } else {
             console.warn('[GalaxyBrowser] 服务器创建失败，使用本地模式:', serverResult.error);
             this._fallbackCreate(galaxyName, galaxyNameCN, galaxyDesc,
@@ -598,6 +583,7 @@ export class GalaxyBrowser {
             visualRadius: p.visualRadius, color: p.color,
             details: p.details || `${p.name} — ${galaxyName}的第${i+1}颗行星。`,
             voiceIntro: p.voiceIntro || `${p.name}，${galaxyName}的行星。`,
+            moons: p.moons || [],
             isStar: false,
         }));
 

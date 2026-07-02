@@ -45,9 +45,10 @@ export class SceneManager {
         // --- OrbitControls（Blender 风格：中键旋转、左键平移、滚轮缩放） ---
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
-        this.controls.dampingFactor = 0.08;
-        this.controls.minDistance = ss * 0.5;
-        this.controls.maxDistance = ss * 150;
+        this.controls.dampingFactor = 0.25;
+        this.controls.minDistance = 0;
+        this.controls.maxDistance = ss * 1000;
+        this.controls.zoomSpeed = 2.0;
         this.controls.target.set(0, 0, 0);
 
         // Blender 映射

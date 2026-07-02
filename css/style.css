@@ -307,6 +307,31 @@ body {
     color: #000;
 }
 
+/* 卫星下拉 */
+.card-moons-toggle { margin: 6px 0; }
+.card-moons-btn {
+    width:100%; background:none; border:1px solid var(--fui-accent-dim);
+    color:var(--fui-text-dim); font-family:var(--fui-font-body); font-size:12px;
+    letter-spacing:1px; padding:4px 12px; cursor:pointer; transition:all 0.2s;
+}
+.card-moons-btn:hover { border-color:var(--fui-border-glow); color:var(--fui-cyan); }
+.moons-arrow { display:inline-block; transition:transform 0.2s; margin-left:4px; }
+.card-moons-list { border-left:2px solid var(--fui-accent-dim); padding:4px 8px; margin:2px 0; }
+.moon-item {
+    display:flex; align-items:center; gap:8px; padding:4px 6px; margin:2px 0;
+    font-size:11px; color:var(--fui-text-bright); font-family:var(--fui-font-body);
+    border-bottom:1px solid rgba(0,243,255,0.05);
+}
+.moon-item:last-child { border-bottom:none; }
+.moon-name { flex:1; }
+.moon-info { color:var(--fui-text-dim); font-size:10px; margin-right:auto; }
+.moon-btn {
+    background:none; border:1px solid var(--fui-accent-dim); color:var(--fui-cyan);
+    font-size:10px; padding:1px 6px; cursor:pointer; transition:all 0.2s;
+    font-family:var(--fui-font-body);
+}
+.moon-btn:hover { background:var(--fui-accent-dim); }
+
 /* ========== CRT 启动叠加层 ========== */
 #crt-overlay {
     position: fixed;
@@ -553,6 +578,51 @@ body {
 #ship-entry-btn { right: 236px; }
 #galaxy-browser-btn { right: 290px; }
 #planet-lab-btn { right: 344px; }
+
+/* 探测器快捷发射按钮 */
+#probe-launcher-btn { right: 398px; }
+.probe-launcher-wrap {
+    position: fixed; top: 20px; right: 398px;
+    z-index: 200;
+    padding-bottom: 60px; /* 延长触发区域避免鼠标离开 */
+}
+.probe-launcher-panel {
+    position: absolute; top: 44px; left: 50%; transform: translateX(-50%);
+    width: 220px; background: rgba(10,12,20,0.88); backdrop-filter:blur(10px);
+    border: 1px solid var(--fui-border-glow);
+    padding: 12px 14px; opacity: 0; pointer-events: none;
+    transition: opacity 0.2s, transform 0.2s;
+    transform: translateX(-50%) translateY(-4px);
+    clip-path: polygon(0 0, 100% 0, 100% calc(100% - 12px), calc(100% - 12px) 100%, 0 100%);
+    z-index: 201;
+}
+/* 使用兄弟选择器：悬停按钮或面板本身时都显示 */
+.probe-launcher-wrap:hover .probe-launcher-panel,
+.probe-launcher-panel:hover {
+    opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0);
+}
+.probe-launcher-header {
+    font-family: var(--fui-font-display); font-size: 10px; letter-spacing: 2px;
+    color: var(--fui-cyan); margin-bottom: 8px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--fui-accent-dim);
+}
+.probe-launcher-row {
+    display: flex; align-items: center; gap: 6px; margin-bottom: 10px;
+    font-family: var(--fui-font-body); font-size: 12px; color: var(--fui-text-bright);
+}
+.probe-launcher-row input {
+    width: 60px; background: var(--fui-bg-input); border: 1px solid var(--fui-accent-dim);
+    color: var(--fui-text-bright); padding: 3px 6px; text-align: center;
+    font-size: 13px; outline: none; font-family: var(--fui-font-body);
+}
+.probe-launcher-row input:focus { border-color: var(--fui-cyan); }
+.probe-launcher-fire {
+    width: 100%; padding: 6px; border: 1px solid var(--fui-border-glow);
+    background: var(--fui-accent-dim); color: var(--fui-cyan);
+    font-family: var(--fui-font-display); font-size: 11px; letter-spacing: 2px;
+    cursor: pointer; transition: all 0.3s;
+}
+.probe-launcher-fire:hover { background: var(--fui-cyan); color: #000; }
 
 /* ========== FUI 数据显示框（按钮悬停） ========== */
 .fui-data-display {
@@ -1554,6 +1624,54 @@ body {
 }
 
 /* ========== 添加星体按钮 & 面板 — FUI ========== */
+/* 史瓦西说明面板（全息风格，仿 chat-window） */
+.schwarzschild-panel {
+    position: fixed; top: 50%; left: 50%;
+    transform: translate(calc(-100% - 400px), -50%);
+    width: 240px;
+    z-index: 349;
+    background: rgba(8,22,35,0.45);
+    backdrop-filter: blur(18px) saturate(1.6);
+    border: 1px solid rgba(0,243,255,0.3);
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+    box-shadow: inset 0 0 40px rgba(0,243,255,0.06), 0 0 30px rgba(0,243,255,0.08);
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+}
+.schwarzschild-panel::before {
+    content: ''; position: absolute; inset: 0;
+    clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 14px 100%, 0 calc(100% - 14px));
+    background: linear-gradient(135deg, rgba(255,255,255,0.12) 0%, transparent 40%, transparent 60%, rgba(0,243,255,0.06) 100%);
+    pointer-events: none; z-index: 20;
+}
+.schwarzschild-panel::after {
+    content: ''; position: absolute; inset: 0;
+    background: repeating-linear-gradient(0deg,transparent 0px,transparent 3px,rgba(0,243,255,0.03) 3px,rgba(0,243,255,0.03) 4px),
+                repeating-linear-gradient(90deg,transparent 0px,transparent 80px,rgba(0,243,255,0.02) 80px,rgba(0,243,255,0.02) 81px);
+    animation: schInterference 12s linear infinite;
+    pointer-events: none; z-index: 19; mix-blend-mode: screen;
+}
+@keyframes schInterference { 0%{background-position:0 0,0 0} 100%{background-position:0 120px,40px 0} }
+.schwarzschild-panel.hidden { display: none; }
+.schwarzschild-header {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 14px; border-bottom: 1px solid rgba(0,243,255,0.15);
+    background: linear-gradient(180deg,rgba(0,243,255,0.06),transparent);
+    position: relative; z-index: 22;
+}
+.schwarzschild-title { font-family:'Orbitron',sans-serif; font-size:10px; letter-spacing:2px; color:#00f3ff; text-shadow:0 0 6px rgba(0,243,255,0.5); }
+.schwarzschild-tag { font-size:8px; letter-spacing:1.5px; opacity:0.5; color:#00f3ff; font-family:'Rajdhani',sans-serif; }
+.schwarzschild-body { padding:12px 14px; position:relative; z-index:22; font-family:'Share Tech Mono',monospace; }
+.schwarzschild-formula {
+    font-family:'Orbitron',sans-serif; font-size:16px; letter-spacing:1px;
+    color:#00f3ff; text-align:center; margin-bottom:10px;
+    text-shadow:0 0 8px rgba(0,243,255,0.4);
+}
+.schwarzschild-text { font-size:11px; line-height:1.6; color:rgba(0,243,255,0.8); margin-bottom:10px; }
+.schwarzschild-text b { color:#fff; }
+.schwarzschild-params { font-size:10px; line-height:1.8; color:rgba(0,243,255,0.5); padding:6px 0; border-top:1px solid rgba(0,243,255,0.1); margin-bottom:8px; }
+.schwarzschild-example { font-size:10px; line-height:1.7; color:rgba(0,243,255,0.6); display:flex; flex-direction:column; gap:2px; }
+
 .add-body-panel {
     position: relative;
     position: fixed;

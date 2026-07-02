@@ -197,6 +197,23 @@ class SolarSystemApp {
             this.planetLab.open();
         });
 
+        // 快捷探测器发射
+        document.getElementById('probe-launcher-fire')?.addEventListener('click', () => {
+            if (this.probeData) return;
+            const speed = parseFloat(document.getElementById('probe-launcher-speed')?.value) || 35;
+            const cam = this.sceneManager.camera;
+            const dir = cam.getWorldDirection(new THREE.Vector3());
+            const startPos = cam.position.clone().add(dir.clone().multiplyScalar(2));
+            this._spawnProbe(startPos);
+            this.probeMesh.lookAt(startPos.clone().add(dir));
+            this.probeData = {
+                start: startPos.clone(),
+                velocity: dir.multiplyScalar(speed),
+                body: null, moonKey: null, isManual: true,
+            };
+            this._showToast('📡 探测器已发射 · 速度 ' + speed + ' 单位/秒');
+        });
+
         // 最后启动默认系统（此时所有依赖已就绪）
         this.systemManager.switchTo('solar-system');
 
@@ -253,13 +270,15 @@ class SolarSystemApp {
             if (this.timeParticles) {
                 this.timeParticles.setDragging(this._sliderDragging, val, this._prevSliderVal);
             }
-            // 拖动中 → 滑块方向音效（仅方向变化时播放一次完整音效）
+            // 拖动中 → 滑块方向音效（每次向右划只播一次正向，向左播反向）
             if (this._sliderDragging && val !== this._prevSliderVal) {
                 const dir = val > this._prevSliderVal ? 1 : -1;
                 if (dir !== this._lastSliderDir) {
                     this._lastSliderDir = dir;
-                    const sm = window.__soundManager;
-                    if (sm && sm.isReady()) sm.playSliderSwoosh(dir);
+                    if (dir === 1) { // 只向右时播放特效
+                        const sm = window.__soundManager;
+                        if (sm && sm.isReady()) sm.playSliderSwoosh(1);
+                    }
                 }
             } else if (!this._sliderDragging) {
                 this._lastSliderDir = 0;
@@ -567,7 +586,8 @@ class SolarSystemApp {
         const startPos = cam.position.clone()
             .add(cam.getWorldDirection(new THREE.Vector3()).multiplyScalar(2));
 
-        const vel3d = body.velocity.clone().multiplyScalar(POS_SCALE);
+        const vel = body.velocity || new THREE.Vector3();
+        const vel3d = vel.clone().multiplyScalar(POS_SCALE);
         const orbSpeed = vel3d.length();
         const R = planetPos.length();
 
@@ -792,12 +812,15 @@ class SolarSystemApp {
 
         this.addBodyBtn?.addEventListener('click', () => {
             const isOpen = !this.addBodyPanel.classList.contains('hidden');
+            const schPanel = document.getElementById('schwarzschild-info');
             if (isOpen) {
                 this.addBodyPanel.classList.add('hidden');
+                if (schPanel) schPanel.classList.add('hidden');
                 this.bodyEditor.exitPlaceMode();
             } else {
                 if (confirm('⚠️ 添加星体会改变当前星系结构\n\n新增的星体会加入物理引擎并影响现有天体的轨道。\n\n是否继续？')) {
                     this.addBodyPanel.classList.remove('hidden');
+                    if (schPanel) schPanel.classList.remove('hidden');
                     this._switchToTab('abp-add');
                     this.bodyEditor.enterPlaceMode();
                 }
@@ -806,6 +829,8 @@ class SolarSystemApp {
 
         document.getElementById('abp-close')?.addEventListener('click', () => {
             this.addBodyPanel.classList.add('hidden');
+            const schPanel = document.getElementById('schwarzschild-info');
+            if (schPanel) schPanel.classList.add('hidden');
             this.bodyEditor.exitPlaceMode();
         });
 
@@ -833,6 +858,11 @@ class SolarSystemApp {
             const { x, y, z } = this._placementPos;
 
             this.bodyEditor.confirmCreate({ name, mass, radius, color, visualR, x, y, z });
+            // 确认后隐藏所有引导元素
+            if (this.bodyEditor.guides) {
+                this.bodyEditor.guides.hide();
+                this.bodyEditor.guides.clearAll();
+            }
             this._placementPos = null;
             confirmBtn.disabled = true;
             confirmBtn.textContent = '📍 先点击场景放置位置';
@@ -840,6 +870,14 @@ class SolarSystemApp {
             document.getElementById('abp-vel-info').textContent = '未设置';
             document.getElementById('abp-velocity-section')?.classList.add('hidden');
             this._refreshBodyList();
+        });
+
+        // ---- 视觉大小实时更新预览球 ----
+        document.getElementById('abp-visual')?.addEventListener('input', (e) => {
+            const val = parseFloat(e.target.value) || 1.0;
+            if (this.bodyEditor && this.bodyEditor.guides) {
+                this.bodyEditor.guides.setPreviewScale(val);
+            }
         });
 
         // ---- 初速度 ----
@@ -894,11 +932,18 @@ class SolarSystemApp {
             listBody.innerHTML = '<div style="color:#667;font-size:12px;text-align:center;padding:10px;">暂无自定义星体</div>';
             return;
         }
-        listBody.innerHTML = list.map(c => `
+        listBody.innerHTML = list.map(c => {
+            const mass = c.mass || 0;
+            const radius = c.radius || 0;
+            const visR = c.visualR || 1.0;
+            const isBH = c.isBlackHole || false;
+            const nameTag = isBH ? '🕳️ ' : '';
+            const infoText = c.radius ? `${(mass / 1e24).toFixed(1)}e24 kg · ${(radius / 1000).toFixed(0)} km` : '黑洞';
+            return `
             <div class="abp-list-item" data-key="${c.key}">
                 <div class="abp-list-main">
-                    <span class="abp-list-name">${c.name}</span>
-                    <span class="abp-list-info">${(c.mass / 1e24).toFixed(1)}e24 kg · ${c.radius.toFixed(0)} km</span>
+                    <span class="abp-list-name">${nameTag}${c.name}</span>
+                    <span class="abp-list-info">${infoText}</span>
                 </div>
                 <span class="abp-list-actions">
                     <button class="abp-edit" data-key="${c.key}">✎</button>
@@ -907,11 +952,11 @@ class SolarSystemApp {
             </div>
             <div class="abp-edit-row hidden" data-key="${c.key}">
                 <input class="abp-edit-name" value="${c.name}" placeholder="名称" />
-                <input class="abp-edit-mass" type="number" value="${c.mass}" step="any" placeholder="质量(kg)" />
-                <input class="abp-edit-visual" type="number" value="${c.visualR}" step="0.1" placeholder="视觉大小" />
+                <input class="abp-edit-mass" type="number" value="${mass}" step="any" placeholder="质量(kg)" />
+                <input class="abp-edit-visual" type="number" value="${visR}" step="0.1" placeholder="视觉大小" />
                 <button class="abp-edit-save" data-key="${c.key}">💾</button>
             </div>
-        `).join('');
+        `}).join('');
 
         // 悬浮高亮
         listBody.querySelectorAll('.abp-list-item').forEach(item => {
@@ -954,6 +999,13 @@ class SolarSystemApp {
                 this._refreshBodyList();
             });
         });
+    }
+
+    _showToast(msg) {
+        const el = document.getElementById('toast');
+        if (!el) return;
+        el.textContent = msg; el.classList.add('show');
+        clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 2400);
     }
 
     // ==================== 动画循环 ====================

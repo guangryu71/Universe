@@ -172,6 +172,9 @@ export class UIManager {
             infoEl.textContent = `质量: ${formatMass(body.mass)} | 半径: ${formatDiameter(body.realRadius)}`;
         }
 
+        // 卫星列表
+        this._populateMoons(body);
+
         // 星球选中音效
         const sm = window.__soundManager;
         if (sm && sm.isReady()) sm.play('planetSelect', { volume: 0.35 });
@@ -186,6 +189,51 @@ export class UIManager {
 
         this.card.classList.add('visible');
         this.cardVisible = true;
+    }
+
+    /** 填充卫星列表 */
+    _populateMoons(body) {
+        const toggle = document.getElementById('card-moons-btn');
+        const list = document.getElementById('card-moons-list');
+        const wrap = document.querySelector('.card-moons-toggle');
+        if (!toggle || !list || !wrap) return;
+
+        wrap.style.display = '';
+        const moons = this.allMoons[body.key];
+        if (!moons || moons.length === 0) {
+            list.innerHTML = '<div class="moon-item" style="opacity:0.4">暂无卫星数据</div>';
+        } else {
+            list.innerHTML = moons.map((m, i) => {
+                const name = m.name || m.key || ('卫星' + i);
+                const info = m.radius ? 'R=' + (m.radius / 1000).toFixed(0) + 'km' : '--';
+                return '<div class="moon-item">' +
+                    '<span class="moon-name">🌙 ' + name + '</span>' +
+                    '<span class="moon-info">' + info + '</span>' +
+                    '<button class="moon-btn" data-moon-i="' + i + '">🔍 详情</button>' +
+                    '<button class="moon-btn" data-moon-i="' + i + '">🚀 探测</button>' +
+                '</div>';
+            }).join('');
+        }
+
+        toggle.onclick = () => {
+            const open = list.style.display !== 'none';
+            list.style.display = open ? 'none' : '';
+            toggle.querySelector('.moons-arrow').textContent = open ? '▸' : '▾';
+        };
+
+        list.querySelectorAll('.moon-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const idx = parseInt(btn.dataset.moonI);
+                const m = moons[idx];
+                if (!m) return;
+                if (btn.textContent.includes('详情')) {
+                    this.showDetailModal(null, { key: m.key || ('moon_' + idx), name: m.name || ('卫星' + idx), nameCN: m.name || '' });
+                } else if (btn.textContent.includes('探测')) {
+                    if (this.onProbe) this.onProbe(m, null);
+                }
+            });
+        });
     }
 
     hideCard() {
