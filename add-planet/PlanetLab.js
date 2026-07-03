@@ -5,7 +5,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PhysicsEngine } from '../js/physics.js';
-import { POS_SCALE, formatMass } from '../js/constants.js';
+import { formatMass } from '../js/constants.js';
 import { BodyEditor } from './BodyEditor.js';
 
 export class PlanetLab {
@@ -14,6 +14,8 @@ export class PlanetLab {
         this._collisionBoxes = [];
         this._selectedBody = null;
         this._isOpen = false;
+        this._showTrails = false;       // 轨迹线显隐
+        this._trailLines = [];          // { body, line, points[] }
 
         this._buildDOM();
         this._bindEvents();
@@ -30,6 +32,8 @@ export class PlanetLab {
                 <div class="pl-header">
                     <span>🔬 星球实验室</span>
                     <div class="pl-header-actions">
+                        <button id="pl-clear-trails" class="pl-header-btn" title="擦除所有轨迹线">🗑 擦除</button>
+                        <button id="pl-toggle-trails" class="pl-header-btn" title="显示/隐藏轨迹线">〰 轨迹</button>
                         <button id="pl-toggle-collision" class="pl-header-btn" title="切换碰撞箱">📦 碰撞箱</button>
                         <button id="pl-close" class="pl-close-btn">&times;</button>
                     </div>
@@ -50,7 +54,7 @@ export class PlanetLab {
                     </div>
                 </div>
                 <div class="pl-sidebar" id="pl-sidebar">
-                    <div class="pl-sidebar-title">🪐 星球管理</div>
+                    <div class="pl-sidebar-title" id="pl-sidebar-title" style="cursor:pointer;">🪐 星球管理 ▾</div>
                     <div class="pl-body-list" id="pl-body-list">
                         <div class="pl-empty">暂无星球，点击下方按钮添加</div>
                     </div>
@@ -61,7 +65,6 @@ export class PlanetLab {
                         <div class="abp-row"><label>质量 (kg)</label><input id="pl-abp-mass" type="number" value="1e24" step="any" /></div>
                         <div class="abp-row"><label>半径 (m)</label><input id="pl-abp-radius" type="number" value="6371000" step="any" /></div>
                         <div class="abp-row"><label>颜色</label><input id="pl-abp-color" type="color" value="#ff8844" /></div>
-                        <div class="abp-row"><label>视觉大小</label><input id="pl-abp-visual" type="number" value="1.2" step="0.1" /></div>
                         <div class="abp-row"><label>位置</label><span id="pl-abp-pos" style="font-size:10px;color:#0f8;">等待放置...</span></div>
                         <div class="abp-row hidden" id="pl-abp-vel-section">
                             <label>初速度</label>
@@ -119,6 +122,12 @@ export class PlanetLab {
             this.abpInline.classList.remove('hidden');
             if (this.bodyEditor) {
                 this.bodyEditor.enterPlaceMode();
+                // 隐藏 PlacementGuides 自带的网格和坐标轴（实验室已有大网格）
+                const g = this.bodyEditor.placementCtrl.guides;
+                if (g) {
+                    if (g._gridHelper) g._gridHelper.visible = false;
+                    if (g._axesHelper) g._axesHelper.visible = false;
+                }
                 this.canvasWrap.style.cursor = 'crosshair';
             }
         });
@@ -135,6 +144,29 @@ export class PlanetLab {
             this._updateCollisionVisibility();
         });
         this.collisionBtn.classList.add('active');
+
+        // 轨迹线切换
+        this.trailsBtn = this.overlay.querySelector('#pl-toggle-trails');
+        this.trailsBtn?.addEventListener('click', () => {
+            this._showTrails = !this._showTrails;
+            this.trailsBtn.classList.toggle('active', this._showTrails);
+            this._updateTrailsVisibility();
+        });
+        this.trailsBtn.classList.add('active'); // 默认开启
+
+        // 擦除轨迹线
+        this.overlay.querySelector('#pl-clear-trails')?.addEventListener('click', () => {
+            this._clearTrails();
+        });
+
+        // 侧边栏标题点击 → 展开/折叠星体列表
+        this.sideTitle = this.overlay.querySelector('#pl-sidebar-title');
+        this.bodyListWrap = this.overlay.querySelector('#pl-body-list');
+        this.sideTitle?.addEventListener('click', () => {
+            const isHidden = this.bodyListWrap.style.display === 'none';
+            this.bodyListWrap.style.display = isHidden ? '' : 'none';
+            this.sideTitle.textContent = isHidden ? '🪐 星球管理 ▾' : '🪐 星球管理 ▸';
+        });
 
         // ESC
         document.addEventListener('keydown', (e) => {
@@ -158,13 +190,22 @@ export class PlanetLab {
         q('#pl-abp-mass').value = '1e24';
         q('#pl-abp-radius').value = '6371000';
         q('#pl-abp-color').value = '#ff8844';
-        q('#pl-abp-visual').value = '1.2';
         q('#pl-abp-pos').textContent = '等待放置...';
         q('#pl-abp-vel-section').classList.add('hidden');
         q('#pl-abp-vel-info').textContent = '未设置';
         const btn = q('#pl-abp-confirm');
         btn.disabled = true;
         btn.textContent = '📍 先点击场景放置位置';
+        // 预览球大小 = 默认半径 * 实验室视觉缩放
+        const LAB_VIS_SCALE = 1e-6;
+        const defaultR = 6371000;
+        const defaultVisualR = Math.max(defaultR * LAB_VIS_SCALE, 0.1);
+        this._previewSize = defaultVisualR * 20; // SYSTEM_SCALE
+        if (this.previewSphere) this.previewSphere.scale.setScalar(this._previewSize);
+        // 同步 ghostStar（如果放置引导已激活）
+        if (this.bodyEditor?.placementCtrl?.guides) {
+            this.bodyEditor.placementCtrl.guides.setPreviewScale(defaultVisualR / 0.6);
+        }
     }
 
     // ==================== 场景 ====================
@@ -179,13 +220,15 @@ export class PlanetLab {
         this._scene = new THREE.Scene();
         this._timeScale = 1.0;   // 时间流速倍率
 
-        this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 500);
-        this.camera.position.set(10, 12, 18);
+        this.camera = new THREE.PerspectiveCamera(55, 1, 0.1, 50000);
+        this.camera.position.set(150, 180, 270);
         this.camera.lookAt(0, 0, 0);
 
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.08;
+        this.controls.minDistance = 1;
+        this.controls.maxDistance = 15000;
         this.controls.target.set(0, 0, 0);
         this.controls.mouseButtons = {
             LEFT: THREE.MOUSE.PAN,
@@ -198,19 +241,20 @@ export class PlanetLab {
         pt.position.set(0, 5, 0);
         this._scene.add(pt);
 
-        const grid = new THREE.GridHelper(400, 100, 0x334455, 0x222233);
+        const grid = new THREE.GridHelper(10000, 200, 0x334455, 0x222233);
         this._scene.add(grid);
 
-        const dotGeo = new THREE.SphereGeometry(0.15, 8, 8);
+        const dotGeo = new THREE.SphereGeometry(2, 12, 12);
         const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
         this._scene.add(new THREE.Mesh(dotGeo, dotMat));
 
-        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(8,0,0), 0xff4444);
-        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(0,8,0), 0x44ff44);
-        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,8), 0x4488ff);
+        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(80,0,0), 0xff4444);
+        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(0,80,0), 0x44ff44);
+        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,80), 0x4488ff);
 
-        // 预览球（显示放置位置，大小跟随视觉大小输入）
-        this._previewSize = 0.8;
+        // 预览球（显示放置位置，大小由半径 * 实验室视觉缩放 决定）
+        const LAB_VIS_SCALE = 1e-6;
+this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
         const pGeo = new THREE.SphereGeometry(1, 24, 24);
         const pMat = new THREE.MeshStandardMaterial({
             color: 0x00cc66, roughness: 0.5, metalness: 0.2, transparent: true, opacity: 0.7,
@@ -247,7 +291,7 @@ export class PlanetLab {
             const body = this._labPlanets[latestKey];
             if (body && !this._collisionBoxes.some(c => c.body === body)) {
                 this._bodies.push(body);
-                this._addCollisionBox(body);
+                this._origAddCollisionBox(body);
                 this._refreshList();
             }
         };
@@ -321,6 +365,9 @@ export class PlanetLab {
         const panel = this.overlay;
         return {
             _hudContainer: panel.querySelector('#pl-abp-inline'),
+            _onPositionUpdate: (x, y, z) => {
+                if (self.previewSphere) self.previewSphere.position.set(x, y, z);
+            },
             _onPlacementDone: (x, y, z, au) => {
                 const posEl = panel.querySelector('#pl-abp-pos');
                 if (posEl) posEl.textContent = `(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) ≈ ${au.toFixed(2)} AU`;
@@ -358,7 +405,8 @@ export class PlanetLab {
             const mass   = parseFloat(panel.querySelector('#pl-abp-mass').value) || 1e24;
             const radius = parseFloat(panel.querySelector('#pl-abp-radius').value) || 6371000;
             const color  = panel.querySelector('#pl-abp-color').value || '#ff8844';
-            const visualR = parseFloat(panel.querySelector('#pl-abp-visual').value) || 1.2;
+            const LAB_VIS_SCALE = 1e-6; // 10^6 米 → 1 场景单位
+            const visualR = Math.max(radius * LAB_VIS_SCALE, 0.1); // 最小 0.1 保证可见
 
             // 从 PlacementController 获取放置位置
             const pos = this.bodyEditor.placementCtrl.getPlacedPos();
@@ -377,16 +425,21 @@ export class PlanetLab {
             this.abpInline.classList.add('hidden');
         });
 
-        // 视觉大小实时预览
-        panel.querySelector('#pl-abp-visual').addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value) || 1.0;
-            this._previewSize = val;
-            if (this.previewSphere) this.previewSphere.scale.setScalar(val);
+        // 半径输入 → 同步幽灵预览球大小
+        panel.querySelector('#pl-abp-radius').addEventListener('input', (e) => {
+            const r = parseFloat(e.target.value) || 6371000;
+            const LAB_VIS_SCALE = 1e-6;
+            const visualR = Math.max(r * LAB_VIS_SCALE, 0.1);
+            // 更新 ghostStar（PlacementGuides 的 wireframe 预览球）
             if (this.bodyEditor?.placementCtrl?.guides) {
-                this.bodyEditor.placementCtrl.guides.setPreviewScale(val);
+                this.bodyEditor.placementCtrl.guides.setPreviewScale(visualR / 0.6);
+            }
+            // 更新 previewSphere（实验室自己的绿色预览球）
+            if (this.previewSphere) {
+                this._previewSize = visualR * 20; // SYSTEM_SCALE
+                this.previewSphere.scale.setScalar(this._previewSize);
             }
         });
-
         // 初速度方向
         panel.querySelector('#pl-abp-vel-btn').addEventListener('click', () => {
             const speed = parseFloat(panel.querySelector('#pl-abp-vel-speed').value) || 0;
@@ -426,6 +479,74 @@ export class PlanetLab {
         this._collisionBoxes.forEach(c => { c.mesh.visible = this._showCollision; });
     }
 
+    // ==================== 轨迹线 ====================
+    _addTrail(body) {
+        const pts = [body.mesh.position.clone()];
+        const geo = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({
+            color: 0x00ccff, transparent: true, opacity: 0.5,
+        });
+        const line = new THREE.Line(geo, mat);
+        line.visible = this._showTrails;
+        this._scene.add(line);
+        this._trailLines.push({ body, line, points: pts });
+    }
+
+    _removeTrail(body) {
+        const idx = this._trailLines.findIndex(t => t.body === body);
+        if (idx >= 0) {
+            const entry = this._trailLines[idx];
+            entry.line.geometry?.dispose();
+            entry.line.material?.dispose();
+            this._scene.remove(entry.line);
+            this._trailLines.splice(idx, 1);
+        }
+    }
+
+    _updateTrails(dt) {
+        // 仅在轨迹可见时记录（擦除后关闭轨迹则不记录，下次开启才继续）
+        if (!this._showTrails) return;
+        for (const t of this._trailLines) {
+            if (!t.body.mesh) continue;
+            const pos = t.body.mesh.position.clone();
+            const last = t.points[t.points.length - 1];
+            if (last && pos.distanceTo(last) < 0.1) continue;
+            t.points.push(pos);
+            t.line.geometry.dispose();
+            t.line.geometry = new THREE.BufferGeometry().setFromPoints(t.points);
+        }
+    }
+
+    _updateTrailsVisibility() {
+        this._trailLines.forEach(t => { t.line.visible = this._showTrails; });
+        if (this._showTrails) {
+            for (const t of this._trailLines) {
+                if (t.body.mesh) {
+                    t.points.push(t.body.mesh.position.clone());
+                }
+            }
+        }
+    }
+
+    _clearTrails() {
+        // 擦除所有轨迹线（保留轨迹数据结构，清除点列和几何体）
+        for (const t of this._trailLines) {
+            t.points.length = 0;
+            t.line.geometry.dispose();
+            t.line.geometry = new THREE.BufferGeometry().setFromPoints([]);
+            // 如果轨迹可见，以当前位置为起点继续绘制
+            if (this._showTrails && t.body.mesh) {
+                t.points.push(t.body.mesh.position.clone());
+            }
+        }
+    }
+
+    // 在 _addCollisionBox 中同时添加轨迹
+    _origAddCollisionBox(body) {
+        this._addCollisionBox(body);
+        this._addTrail(body);
+    }
+
     // ==================== 编辑/删除 ====================
     _openEdit(body) {
         this._editingBody = body;
@@ -459,6 +580,7 @@ export class PlanetLab {
         if (!confirm(`确定删除 "${body.name}" 吗？`)) return;
         this.physics.removeBody(body);
         this._removeCollisionBox(body);
+        this._removeTrail(body);
         body.dispose();
         this._bodies = this._bodies.filter(b => b !== body);
         delete this._labPlanets[body.key];
@@ -481,6 +603,11 @@ export class PlanetLab {
 
     // ==================== 列表 ====================
     _refreshList() {
+        // 展开列表（有新星体时自动展开）
+        if (this.bodyListWrap && this._bodies.length > 0) {
+            this.bodyListWrap.style.display = '';
+            if (this.sideTitle) this.sideTitle.textContent = '🪐 星球管理 ▾';
+        }
         if (this._bodies.length === 0) {
             this.bodyListEl.innerHTML = '<div class="pl-empty">暂无星球，点击下方按钮添加</div>';
             return;
@@ -529,6 +656,9 @@ export class PlanetLab {
             if (body._syncMeshPosition) body._syncMeshPosition();
             if (body.mesh && body.rotationSpeed) body.mesh.rotation.y += body.rotationSpeed * 0.016;
         }
+
+        // 更新轨迹线
+        this._updateTrails(43200 * 0.1 * this._timeScale);
 
         // OrbitControls 在放置模式下禁用（BodyEditor 的 PlacementController 内部控制）
         if (this.controls) this.controls.update();

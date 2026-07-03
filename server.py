@@ -1,4 +1,4 @@
-import os, re, sys, json, http.server, socketserver, shutil, urllib.parse, io, time
+import os, re, sys, json, http.server, socketserver, shutil, urllib.parse, io, time, zipfile
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 CUSTOM_DIR = os.path.join(DIR, 'Galaxy', 'custom')
@@ -13,7 +13,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_POST(self):
         length = int(self.headers.get('Content-Length', 0))
-        body = self.rfile.read(length).decode('utf-8') if length else '{}'
+        raw = self.rfile.read(length) if length else b''
+
+        if self.path == '/api/import-galaxy':
+            # 导入是二进制 zip 数据，不按 JSON 解析
+            result = self._import_galaxy(raw)
+            self._json(result)
+            return
+
+        # 其余接口按 JSON 解析
+        body = raw.decode('utf-8') if raw else '{}'
         data = json.loads(body) if body else {}
 
         if self.path == '/api/list-galaxies':
@@ -23,6 +32,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self._json(result)
         elif self.path == '/api/delete-galaxy':
             result = self._delete_galaxy(data)
+            self._json(result)
+        elif self.path == '/api/export-galaxies':
+            result = self._export_galaxies(data)
             self._json(result)
         else:
             self._json({'ok': False, 'error': 'unknown endpoint'}, 404)
@@ -88,6 +100,58 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             shutil.rmtree(folder)
             return {'ok': True}
         except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def _export_galaxies(self, data):
+        ids = data.get('ids', [])
+        if not ids:
+            return {'ok': False, 'error': '未选择星系'}
+        output_dir = os.path.join(DIR, 'output')
+        os.makedirs(output_dir, exist_ok=True)
+        zip_name = 'galaxies_export_' + str(int(time.time())) + '.zip'
+        zip_path = os.path.join(output_dir, zip_name)
+        try:
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for gid in ids:
+                    folder = os.path.join(CUSTOM_DIR, gid)
+                    if not os.path.isdir(folder):
+                        continue
+                    for root, dirs, files in os.walk(folder):
+                        for fn in files:
+                            file_path = os.path.join(root, fn)
+                            arcname = os.path.relpath(file_path, CUSTOM_DIR)
+                            zf.write(file_path, arcname)
+            return {'ok': True, 'filename': zip_name, 'path': zip_path}
+        except Exception as e:
+            return {'ok': False, 'error': str(e)}
+
+    def _import_galaxy(self, raw_data):
+        raw = raw_data
+        if not raw:
+            return {'ok': False, 'error': '未收到文件数据'}
+        tmp_path = os.path.join(CUSTOM_DIR, '_import_temp.zip')
+        try:
+            with open(tmp_path, 'wb') as f:
+                f.write(raw)
+            imported = []
+            with zipfile.ZipFile(tmp_path, 'r') as zf:
+                # 先解压到临时目录
+                extract_dir = os.path.join(CUSTOM_DIR, '_import_temp')
+                os.makedirs(extract_dir, exist_ok=True)
+                zf.extractall(extract_dir)
+                # 遍历提取的文件夹，移动到 Galaxy/custom/
+                for item in os.listdir(extract_dir):
+                    src = os.path.join(extract_dir, item)
+                    dst = os.path.join(CUSTOM_DIR, item)
+                    if os.path.isdir(src) and not os.path.exists(dst):
+                        shutil.move(src, dst)
+                        imported.append(item)
+                shutil.rmtree(extract_dir, ignore_errors=True)
+            os.remove(tmp_path)
+            return {'ok': True, 'imported': imported}
+        except Exception as e:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
             return {'ok': False, 'error': str(e)}
 
     def _create_module_file(self, folder, gid, gdata):

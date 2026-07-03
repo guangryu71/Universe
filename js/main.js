@@ -932,6 +932,16 @@ class SolarSystemApp {
                     this.addBodyPanel.classList.remove('hidden');
                     if (schPanel) schPanel.classList.remove('hidden');
                     this._switchToTab('abp-add');
+                    // 设置放置原点为当前系统的中心恒星
+                    const starBody = this.physics.bodies.find(b => b.key === 'sun')
+                        || this.physics.bodies.reduce((a, b) => a.mass > b.mass ? a : b, this.physics.bodies[0]);
+                    if (starBody && starBody.mesh) {
+                        this.bodyEditor.placementCtrl.setOrigin(
+                            starBody.mesh.position.x,
+                            starBody.mesh.position.y,
+                            starBody.mesh.position.z
+                        );
+                    }
                     this.bodyEditor.enterPlaceMode();
                 }
             }

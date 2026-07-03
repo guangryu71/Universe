@@ -68,7 +68,5 @@ export class Sun extends CelestialBody {
         this.mesh.material.emissiveIntensity = 0.8;
     }
 
-    _syncMeshPosition() {
-        // 太阳固定在原点
-    }
+    // 使用 CelestialBody 默认的 _syncMeshPosition，使太阳可被黑洞引力拉动
 }

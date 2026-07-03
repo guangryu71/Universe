@@ -8,6 +8,7 @@ import { SYSTEM_SCALE } from '../js/constants.js';
 export class PlacementGuides {
     constructor(scene) {
         this.scene = scene;
+        this._origin = new THREE.Vector3(); // 原点偏移（默认场景原点）
 
         this._boxHelper = null;   // 体积范围框
         this._vLine = null;       // 垂直虚线
@@ -68,28 +69,38 @@ export class PlacementGuides {
 
     // ---- 更新方法 ----
 
+    /** 设置原点偏移（默认为场景原点，自定义星系中应设为中心恒星位置） */
+    setOrigin(x, y, z) {
+        this._origin.set(x, y, z);
+        this._gridHelper.position.set(x, y, z);
+        this._axesHelper.position.set(x, y, z);
+    }
+
     /** XZ 定位：幽灵球到地面点 + 范围框 */
     updateXZ(x, z) {
+        const ox = this._origin.x, oz = this._origin.z;
         this._ghostStar.position.set(x, 0, z);
         this._ghostStar.visible = true;
-        this._updateBox(x, 0, z);
+        this._updateBox(x - ox, 0, z - oz);
         this._vLine.visible = false;
         this._arrowHelper.visible = false;
     }
 
     /** Y 高度：幽灵球到最终高度 + 垂直虚线 + 范围框 */
     updateY(x, y, z) {
+        const ox = this._origin.x, oz = this._origin.z;
         this._ghostStar.position.set(x, y, z);
         this._ghostStar.visible = true;
         this._updateVLine(new THREE.Vector3(x, 0, z), y);
-        this._updateBox(x, y, z);
+        this._updateBox(x - ox, y - this._origin.y, z - oz);
     }
 
     /** 确认位置后固定幽灵球 */
     showFinalPos(x, y, z) {
+        const ox = this._origin.x, oz = this._origin.z;
         this._ghostStar.position.set(x, y, z);
         this._ghostStar.visible = true;
-        this._updateBox(x, y, z);
+        this._updateBox(x - ox, y - this._origin.y, z - oz);
         this._updateVLine(new THREE.Vector3(x, 0, z), y);
     }
 

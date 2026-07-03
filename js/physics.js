@@ -32,7 +32,7 @@ export class PhysicsEngine {
         // 两两计算引力（O(n²)但太阳系只有10个天体，完全没问题）
         for (let i = 0; i < n; i++) {
             const a = this.bodies[i];
-            if (a.key === 'sun') continue; // 太阳位置固定（近似）
+            // 太阳不再特殊跳过，黑洞等大质量天体会对其产生引力
 
             const accA = accels.get(a);
             const posA = a.position;
@@ -118,4 +118,5 @@ export class PhysicsEngine {
     removeBody(body) {
         this.bodies = this.bodies.filter(b => b !== body);
     }
+
 }

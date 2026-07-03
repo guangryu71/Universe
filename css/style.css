@@ -3084,6 +3084,10 @@ body {
 /* 添加/编辑弹窗 */
 .pl-modal { position: fixed; inset: 0; z-index: 900; }
 .pl-modal.hidden { display: none; }
+
+/* 星系浏览器 - 保存/导入面板 */
+.gb-file-dropdown.hidden { display: none; }
+.gb-save-panel.hidden { display: none !important; }
 .pl-modal-backdrop {
     position: absolute; inset: 0;
     background: rgba(0,0,0,0.5);

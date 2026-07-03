@@ -27,6 +27,7 @@ export class BodyEditor {
             hudParent: (app && app._hudContainer) || document.getElementById('add-body-panel') || document.body,
             hudPosition: 'panel-bottom',
             onPlaced: (x, y, z, velocity) => this._onPlaced(x, y, z, velocity),
+            onPositionUpdate: (app && app._onPositionUpdate) || undefined,
         });
     }
 

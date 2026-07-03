@@ -42,10 +42,15 @@ export class PlacementController {
         this.state = 'idle';
         this._lockedXZ = null;       // { x, z }
         this._lockedY = 0;
+        /** 高度灵敏度：鼠标从画布底部到顶部对应的世界 Y 范围 */
+        this._heightSensitivity = 9999;
         this._vDir = new THREE.Vector3(0, 0, 0);
         this._vMag = 0;
         this._vAzimDir = new THREE.Vector3();
         this._bodyPos = new THREE.Vector3();
+
+        /** 原点偏移（场景坐标），设置后引导线/网格/XZ平面以此为中心 */
+        this._origin = new THREE.Vector3();
 
         // 引导元素（可选）
         if (showGuides) {
@@ -67,6 +72,12 @@ export class PlacementController {
     }
 
     // ==================== 公开接口 ====================
+
+    /** 设置放置参考原点（以某天体中心为基准），默认场景原点 */
+    setOrigin(x, y, z) {
+        this._origin.set(x, y, z);
+        if (this.guides) this.guides.setOrigin(x, y, z);
+    }
 
     /** 进入放置模式：状态 → placing_xz */
     enterPlaceMode() {
@@ -152,7 +163,8 @@ export class PlacementController {
         const { x, y } = screenToNDC(event, this.canvas);
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(new THREE.Vector2(x, y), this.camera);
-        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+        // XZ 平面位于 _origin.y 高度
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this._origin.y);
         const intersect = new THREE.Vector3();
         raycaster.ray.intersectPlane(plane, intersect);
         return intersect;
@@ -160,10 +172,9 @@ export class PlacementController {
 
     _screenYToWorldY(event) {
         const rect = this.canvas.getBoundingClientRect();
-        return THREE.MathUtils.clamp(
-            (1 - (event.clientY - rect.top) / rect.height) * 1000 - 300,
-            -300, 300
-        );
+        // 鼠标在画布中的位置比例 (0=顶部, 1=底部) → 按灵敏度映射高度
+        const t = 1 - (event.clientY - rect.top) / rect.height;
+        return (t - 0.5) * this._heightSensitivity;
     }
 
     _updateXZ(event) {

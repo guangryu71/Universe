@@ -105,6 +105,31 @@ export async function deleteGalaxyOnServer(id) {
     return await _api('/api/delete-galaxy', { id });
 }
 
+/**
+ * 导出星系：压缩选中的 Galaxy/custom/ 文件夹到 output/
+ */
+export async function exportGalaxiesOnServer(ids) {
+    return await _api('/api/export-galaxies', { ids });
+}
+
+/**
+ * 导入星系：上传 zip 文件到服务器并解压到 Galaxy/custom/
+ * @param {File} file - zip 文件
+ */
+export async function importGalaxyOnServer(file) {
+    const url = API_BASE + '/api/import-galaxy';
+    try {
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/octet-stream' },
+            body: await file.arrayBuffer(),
+        });
+        return await resp.json();
+    } catch (e) {
+        return { ok: false, error: '服务器不可用: ' + e.message };
+    }
+}
+
 // ==================== 公开 API ====================
 
 /** 获取所有星系（内置 + 自定义） */

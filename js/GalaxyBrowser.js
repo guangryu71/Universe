@@ -60,6 +60,12 @@ export class GalaxyBrowser {
                         </svg>
                         <input type="text" class="fui-search-input" id="galaxy-search-input" placeholder="SEARCH_TARGET_SYSTEM..." autocomplete="off" />
                     </div>
+                    <!-- 文件导入导出按钮 -->
+                    <div class="gb-file-btn-wrap" style="position:relative;margin-left:6px;">
+                        <button class="gb-file-btn" id="gb-file-btn" title="导入/导出星系" style="background:none;border:none;cursor:pointer;padding:4px;filter:drop-shadow(0 0 6px #00aaff);">
+                            <img src="buttons/文件夹,文件.png" style="width:20px;height:20px;display:block;" />
+                        </button>
+                    </div>
                     <button class="galaxy-browser-close" id="galaxy-browser-close">✕</button>
                 </div>
                 <div class="fui-content galaxy-browser-list" id="galaxy-browser-list">
@@ -78,6 +84,24 @@ export class GalaxyBrowser {
             </div>
         `;
         document.body.appendChild(this.overlay);
+
+        // --- 文件下拉菜单 + 保存面板（fixed 定位，避免被 fui-window 的 clip-path 裁剪）---
+        const ddHTML = `
+            <div class="gb-file-dropdown hidden" id="gb-file-dropdown" style="position:fixed;z-index:9999;background:rgba(10,12,20,0.95);border:1px solid var(--fui-border-glow);min-width:120px;">
+                <button class="gb-file-dropdown-item" data-action="save" style="display:block;width:100%;padding:8px 14px;background:none;border:none;color:var(--fui-text-bright);cursor:pointer;text-align:left;font-family:var(--fui-font-body);font-size:13px;">💾 保存</button>
+                <button class="gb-file-dropdown-item" data-action="import" style="display:block;width:100%;padding:8px 14px;background:none;border:none;color:var(--fui-text-bright);cursor:pointer;text-align:left;font-family:var(--fui-font-body);font-size:13px;">📂 导入</button>
+            </div>
+            <div class="gb-save-panel hidden" id="gb-save-panel" style="position:fixed;z-index:9999;width:320px;max-height:400px;background:rgba(10,12,20,0.95);border:1px solid var(--fui-border-glow);display:flex;flex-direction:column;">
+                <div style="padding:10px 14px;border-bottom:1px solid var(--fui-accent-dim);font-family:var(--fui-font-display);font-size:12px;color:var(--fui-cyan);letter-spacing:1px;">💾 选择要导出的星系</div>
+                <input type="text" id="gb-save-search" placeholder="搜索星系..." style="margin:8px 12px;padding:6px 10px;background:var(--fui-bg-input);border:1px solid var(--fui-accent-dim);color:var(--fui-text-bright);font-size:12px;outline:none;" />
+                <div id="gb-save-list" style="flex:1;overflow-y:auto;padding:4px 12px;min-height:100px;"></div>
+                <div style="padding:8px 12px;border-top:1px solid var(--fui-accent-dim);text-align:right;">
+                    <button id="gb-save-confirm" class="fui-glitch-btn" style="padding:6px 20px;font-size:12px;"><span>✔ 确认导出</span></button>
+                </div>
+            </div>`;
+        const ddWrap = document.createElement('div');
+        ddWrap.innerHTML = ddHTML;
+        this.overlay.appendChild(ddWrap);
 
         // --- 添加星系模态框 ---
         this.addModal = document.createElement('div');
@@ -148,6 +172,77 @@ export class GalaxyBrowser {
         </div>`;
     }
 
+    // ==================== 保存/导入 ====================
+
+    /** 打开保存面板 */
+    _openSavePanel() {
+        if (this.savePanel) {
+            this.savePanel.classList.remove('hidden');
+            this._renderSaveList();
+        }
+    }
+
+    /** 渲染保存列表（含搜索过滤） */
+    _renderSaveList() {
+        if (!this.saveList) return;
+        import('./galaxyRegistry.js').then(({ getAllGalaxies, fetchServerGalaxies }) => {
+            const all = getAllGalaxies();
+            const custom = all.filter(g => !g.isBuiltIn);
+            const query = (this.saveSearch?.value || '').toLowerCase().trim();
+            const filtered = query ? custom.filter(g => g.name.toLowerCase().includes(query) || g.nameCN.toLowerCase().includes(query)) : custom;
+            if (filtered.length === 0) {
+                this.saveList.innerHTML = '<div style="color:#667;text-align:center;padding:20px;font-size:12px;">无匹配星系</div>';
+                return;
+            }
+            this.saveList.innerHTML = filtered.map(g => `
+                <label style="display:flex;align-items:center;gap:8px;padding:6px 4px;cursor:pointer;border-bottom:1px solid rgba(0,243,255,0.05);font-size:13px;color:var(--fui-text-bright);">
+                    <input type="checkbox" class="gb-save-checkbox" value="${g.id}" />
+                    <span>${g.name} <small style="color:var(--fui-text-dim);">// ${g.nameCN}</small></span>
+                </label>
+            `).join('');
+        });
+    }
+
+    /** 确认导出 */
+    async _confirmExport() {
+        const { exportGalaxiesOnServer } = await import('./galaxyRegistry.js');
+        const checks = this.saveList?.querySelectorAll('.gb-save-checkbox:checked') || [];
+        const ids = Array.from(checks).map(cb => cb.value);
+        if (ids.length === 0) { alert('请至少选择一个星系'); return; }
+        const result = await exportGalaxiesOnServer(ids);
+        if (result.ok) {
+            alert(`✅ 导出成功！\n文件: ${result.filename}\n路径: ${result.path}`);
+            this.savePanel?.classList.add('hidden');
+        } else {
+            alert('❌ 导出失败: ' + (result.error || '未知错误'));
+        }
+    }
+
+    /** 导入星系 */
+    _importGalaxy() {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = '.zip';
+        input.style.display = 'none';
+        input.addEventListener('change', async () => {
+            const file = input.files?.[0];
+            if (!file) return;
+            const { importGalaxyOnServer, fetchServerGalaxies } = await import('./galaxyRegistry.js');
+            const result = await importGalaxyOnServer(file);
+            if (result.ok) {
+                alert(`✅ 导入成功！\n导入星系: ${(result.imported || []).join(', ')}`);
+                this._renderList();
+                // 重新加载自定义星系
+                if (this.onRefreshOrbits) this.onRefreshOrbits();
+            } else {
+                alert('❌ 导入失败: ' + (result.error || '未知错误'));
+            }
+            document.body.removeChild(input);
+        });
+        document.body.appendChild(input);
+        input.click();
+    }
+
     // ==================== 事件绑定 ====================
     _bindEvents() {
         // --- 打开/关闭 ---
@@ -166,11 +261,73 @@ export class GalaxyBrowser {
         this.agAddPlanet.addEventListener('click', () => this._addPlanetRow());
         this.agConfirm.addEventListener('click', () => this._confirmCreateGalaxy());
 
+        // --- 文件按钮：点击切换下拉菜单 ---
+        const fileBtn = this.overlay.querySelector('#gb-file-btn');
+        const fileDropdown = this.overlay.querySelector('#gb-file-dropdown');
+        const savePanel = this.overlay.querySelector('#gb-save-panel');
+
+        /** 定位下拉菜单到文件按钮下方 */
+        const positionDropdown = () => {
+            if (!fileBtn || !fileDropdown) return;
+            const rect = fileBtn.getBoundingClientRect();
+            fileDropdown.style.left = rect.left + 'px';
+            fileDropdown.style.top = (rect.bottom + 2) + 'px';
+        };
+        /** 定位保存面板到文件按钮右侧 */
+        const positionSavePanel = () => {
+            if (!fileBtn || !savePanel) return;
+            const rect = fileBtn.getBoundingClientRect();
+            savePanel.style.left = (rect.right + 8) + 'px';
+            savePanel.style.top = rect.top + 'px';
+        };
+
+        fileBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const wasHidden = fileDropdown?.classList.contains('hidden');
+            fileDropdown?.classList.add('hidden');
+            if (savePanel) savePanel.classList.add('hidden');
+            if (wasHidden) {
+                positionDropdown();
+                fileDropdown?.classList.remove('hidden');
+            }
+        });
+        // 下拉项点击
+        fileDropdown?.querySelectorAll('.gb-file-dropdown-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.stopPropagation();
+                fileDropdown?.classList.add('hidden');
+                const action = item.dataset.action;
+                if (action === 'save') {
+                    positionSavePanel();
+                    this._openSavePanel();
+                } else if (action === 'import') {
+                    this._importGalaxy();
+                }
+            });
+        });
+        // 点击页面其他位置关闭
+        document.addEventListener('click', () => {
+            fileDropdown?.classList.add('hidden');
+        }, { capture: true });
+
+        // --- 保存面板 ---
+        this.savePanel = savePanel;
+        this.saveSearch = this.overlay.querySelector('#gb-save-search');
+        this.saveList = this.overlay.querySelector('#gb-save-list');
+        this.saveConfirm = this.overlay.querySelector('#gb-save-confirm');
+        this.saveSearch?.addEventListener('input', () => this._renderSaveList());
+        this.saveConfirm?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._confirmExport();
+        });
+
         // --- ESC 关闭 ---
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
                 if (!this.addModal.classList.contains('hidden')) {
                     this.addModal.classList.add('hidden');
+                } else if (this.savePanel && !this.savePanel.classList.contains('hidden')) {
+                    this.savePanel.classList.add('hidden');
                 } else if (!this.overlay.classList.contains('hidden')) {
                     this.hide();
                 }
@@ -184,6 +341,7 @@ export class GalaxyBrowser {
     // ==================== 显示/隐藏 ====================
     show() {
         this.overlay.classList.remove('hidden');
+        if (this.savePanel) this.savePanel.classList.add('hidden');
         this._renderList();
         this.searchEl.value = '';
         this.searchEl.focus();
@@ -622,10 +780,11 @@ export class GalaxyBrowser {
     /** 将星系数据实例化为独立系统组 */
     _instantiateGalaxy(galaxyId, starSIPos, starInfo, planetInfos, starMass) {
         const createdKeys = [];
+        // 星系独立组 — 所有天体 Mesh 直接创建在此组内，永不污染主场景
         const galaxyGroup = new THREE.Group();
-        galaxyGroup.visible = false; // 默认隐藏，由 SystemManager 控制显示
+        galaxyGroup.visible = false;
 
-        // --- 创建恒星 ---
+        // --- 创建恒星（scene 传 galaxyGroup，Mesh 直接归属组） ---
         const starBody = new CelestialBody({
             key: starInfo.key,
             name: starInfo.name,
@@ -637,12 +796,11 @@ export class GalaxyBrowser {
             color: starInfo.color,
             details: starInfo.details,
             voiceIntro: starInfo.voiceIntro || '',
-            scene: this.scene,
+            scene: galaxyGroup,
         });
         starBody.position.set(starSIPos.x, starSIPos.y, starSIPos.z);
         starBody.velocity.set(0, 0, 0);
         starBody._syncMeshPosition();
-        this._moveBodyToGroup(starBody, galaxyGroup);
 
         this.planets[starInfo.key] = starBody;
         createdKeys.push(starInfo.key);
@@ -660,19 +818,18 @@ export class GalaxyBrowser {
                 color: pInfo.color,
                 details: pInfo.details,
                 voiceIntro: pInfo.voiceIntro || '',
-                scene: this.scene,
+                scene: galaxyGroup,
             });
 
             const orbitR = pInfo.orbitRadius;
             body.position.set(starSIPos.x + orbitR, starSIPos.y, starSIPos.z);
             body.setCircularOrbitVelocity(starMass);
             body._syncMeshPosition();
-            this._moveBodyToGroup(body, galaxyGroup);
 
             this.planets[pInfo.key] = body;
             createdKeys.push(pInfo.key);
 
-            // --- 创建该行星的卫星 ---
+            // --- 卫星 ---
             const moons = pInfo.moons || [];
             moons.forEach((mData, mi) => {
                 const moonKey = pInfo.key + '_moon_' + mi;
@@ -688,30 +845,18 @@ export class GalaxyBrowser {
                 };
                 galaxyGroup.add(moonMesh);
                 createdKeys.push(moonKey);
-                // 暂存到 planets（便于后续查找）
                 if (!this.planets[moonKey]) {
                     this.planets[moonKey] = { key: moonKey, name: mData.name || '卫星', mesh: moonMesh, isMoon: true };
                 }
             });
         });
 
-        // 注册到 SystemManager（独立组，不直接加入场景）
+        // 注册到 SystemManager
         if (this.systemManager) {
             this.systemManager.registerSystemGroup(galaxyId, galaxyGroup, createdKeys);
         }
 
         this._customBodies.push({ galaxyId, keys: createdKeys });
-    }
-
-    /** 将 CelestialBody 的所有 Mesh 移到指定 Group */
-    _moveBodyToGroup(body, group) {
-        const meshes = [body.mesh, body.ringMesh, body.glowMesh, body.cloudMesh, body.labelSprite];
-        for (const m of meshes) {
-            if (m && m.parent) {
-                m.parent.remove(m);
-                group.add(m);
-            }
-        }
     }
 
     /** 页面加载时恢复所有自定义星系的天体实例（服务器 + localStorage） */
