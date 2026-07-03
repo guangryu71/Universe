@@ -197,21 +197,36 @@ class SolarSystemApp {
             this.planetLab.open();
         });
 
-        // 快捷探测器发射
+        // 📡 按钮点击 → 直接进入手动瞄准模式（与"🎯 手动发射"一致）
+        document.getElementById('probe-launcher-btn')?.addEventListener('click', (e) => {
+            if (this.probeData) {
+                this._showToast('⚠️ 已有探测器在飞行中');
+                return;
+            }
+            // 将面板中的速度同步到 manual-speed input
+            const speed = parseFloat(document.getElementById('probe-launcher-speed')?.value) || 35;
+            const manualInput = document.getElementById('manual-speed');
+            if (manualInput) manualInput.value = speed;
+            // 触发现有的手动发射流程
+            this._startManualAim();
+        });
+
+        // 面板内🔥发射按钮（同手动发射流程：十字准星+鼠标瞄准）
         document.getElementById('probe-launcher-fire')?.addEventListener('click', () => {
             if (this.probeData) return;
             const speed = parseFloat(document.getElementById('probe-launcher-speed')?.value) || 35;
-            const cam = this.sceneManager.camera;
-            const dir = cam.getWorldDirection(new THREE.Vector3());
-            const startPos = cam.position.clone().add(dir.clone().multiplyScalar(2));
-            this._spawnProbe(startPos);
-            this.probeMesh.lookAt(startPos.clone().add(dir));
-            this.probeData = {
-                start: startPos.clone(),
-                velocity: dir.multiplyScalar(speed),
-                body: null, moonKey: null, isManual: true,
-            };
-            this._showToast('📡 探测器已发射 · 速度 ' + speed + ' 单位/秒');
+            const manualInput = document.getElementById('manual-speed');
+            if (manualInput) manualInput.value = speed;
+            this._startManualAim();
+        });
+
+        // 收回探测器
+        document.getElementById('probe-launcher-recall')?.addEventListener('click', () => {
+            if (this.probeData) {
+                if (this._manualAim) this._exitManualAim();
+                this._destroyProbe();
+                this._showToast('↩ 探测器已收回');
+            }
         });
 
         // 最后启动默认系统（此时所有依赖已就绪）
@@ -425,80 +440,193 @@ class SolarSystemApp {
         }
     }
 
+    // ==================== 开普勒轨道计算 ====================
+
+    /**
+     * 计算天体的开普勒轨道点（数学完美椭圆）
+     * @param {CelestialBody} body - 目标天体
+     * @param {number} centralMass - 中心天体质量 (kg)
+     * @param {THREE.Vector3} [centerPos] - 中心天体 SI 位置，默认原点
+     * @param {number} [numPoints=256] - 采样点数
+     * @returns {THREE.Vector3[]} 场景坐标下的轨道点数组（首尾闭合）
+     */
+    _computeKeplerianOrbit(body, centralMass, centerPos = new THREE.Vector3(), numPoints = 256) {
+        const G_const = 6.67430e-11;
+        const mu = G_const * centralMass;
+
+        // 相对中心的位置和速度（SI 单位）
+        const rVec = body.position.clone().sub(centerPos);
+        const vVec = body.velocity.clone();
+        const r = rVec.length();
+        const v = vVec.length();
+
+        if (r < 1e-6 || v < 1e-6) return []; // 恒星自身或静止天体
+
+        // === 坐标系适配 ===
+        // 系统使用 XZ 为参考平面（Y 为极轴），但标准轨道力学用 XY 为参考平面（Z 为极轴）
+        // 交换 Y ↔ Z 使运算在标准框架下进行，结果再换回
+        const rS = new THREE.Vector3(rVec.x, rVec.z, rVec.y); // ours → std
+        const vS = new THREE.Vector3(vVec.x, vVec.z, vVec.y);
+
+        // 比角动量 h = r × v
+        const hVec = new THREE.Vector3().crossVectors(rS, vS);
+        const h = hVec.length();
+        if (h < 1e-12) return [];
+
+        // 偏心率向量 e = (v × h) / μ - r̂
+        const rHat = rS.clone().normalize();
+        const eVec = new THREE.Vector3()
+            .crossVectors(vS, hVec)
+            .divideScalar(mu)
+            .sub(rHat);
+        const e = eVec.length();
+
+        // 比能量 ε = v²/2 - μ/r
+        const energy = v * v / 2 - mu / r;
+
+        // 半长轴 a = -μ / (2ε)
+        const a = -mu / (2 * energy);
+        if (a <= 0 || e >= 1) return [];
+
+        // 半短轴
+        const bVal = a * Math.sqrt(1 - e * e);
+
+        // 轨道倾角 i = arccos(hz / |h|)
+        const inc = Math.acos(Math.max(-1, Math.min(1, hVec.z / h)));
+
+        // 升交点黄经 Ω
+        let Omega = 0;
+        if (inc > 0.001) {
+            const nVec = new THREE.Vector3(-hVec.y, hVec.x, 0);
+            const n = nVec.length();
+            if (n > 0.001) {
+                Omega = Math.acos(Math.max(-1, Math.min(1, nVec.x / n)));
+                if (nVec.y < 0) Omega = 2 * Math.PI - Omega;
+            }
+        }
+
+        // 近心点幅角 ω
+        let omega = 0;
+        if (e > 0.001) {
+            if (inc > 0.001) {
+                const nVec = new THREE.Vector3(-hVec.y, hVec.x, 0);
+                const n = nVec.length();
+                if (n > 0.001) {
+                    const eDotN = eVec.x * nVec.x + eVec.y * nVec.y;
+                    omega = Math.acos(Math.max(-1, Math.min(1, eDotN / (e * n))));
+                    if (eVec.z < 0) omega = 2 * Math.PI - omega;
+                }
+            } else {
+                omega = Math.acos(Math.max(-1, Math.min(1, eVec.x / e)));
+                if (eVec.y < 0) omega = 2 * Math.PI - omega;
+            }
+        }
+
+        // 场景坐标缩放
+        const scale = POS_SCALE * SYSTEM_SCALE;
+        const centerScene = new THREE.Vector3(
+            centerPos.x * scale,
+            centerPos.y * scale,
+            centerPos.z * scale
+        );
+
+        // 预计算旋转矩阵分量
+        const cO = Math.cos(Omega), sO = Math.sin(Omega);
+        const ci = Math.cos(inc),   si = Math.sin(inc);
+        const cw = Math.cos(omega), sw = Math.sin(omega);
+
+        // 旋转矩阵：从轨道平面(PQW)到参考系(ECI)
+        // R = Rz(-Ω) * Rx(-i) * Rz(-ω)
+        const R = [
+            cO*cw - sO*ci*sw,  -cO*sw - sO*ci*cw,  sO*si,
+            sO*cw + cO*ci*sw,  -sO*sw + cO*ci*cw, -cO*si,
+            si*sw,              si*cw,              ci,
+        ];
+
+        const points = [];
+        for (let i = 0; i <= numPoints; i++) {
+            // 偏近点角 E
+            const E = (i / numPoints) * 2 * Math.PI;
+            const cosE = Math.cos(E), sinE = Math.sin(E);
+
+            // 轨道平面位置 (PQW): x = a(cosE - e), y = b·sinE
+            const xPQW = a * (cosE - e);
+            const yPQW = bVal * sinE;
+
+            // 旋转到标准参考系
+            const xStd = R[0] * xPQW + R[1] * yPQW;
+            const yStd = R[3] * xPQW + R[4] * yPQW;
+            const zStd = R[6] * xPQW + R[7] * yPQW;
+
+            // 标准框架 → 系统框架 (Y↔Z 换回) + 缩放 + 平移
+            points.push(new THREE.Vector3(
+                xStd * scale + centerScene.x,
+                zStd * scale + centerScene.y,
+                yStd * scale + centerScene.z
+            ));
+        }
+
+        return points;
+    }
+
     /** 公开：从 BodyEditor 触发轨道重算
-     *  1) 清旧线  2) 100x 等 10s  3) 物理循环密集采样  4) 恢复
+     *  方案：基于开普勒轨道根数绘制数学完美椭圆轨道线
+     *  优点：无积分、无状态修改、无"拉丝"、所有行星均完美闭合
      */
     async _refreshOrbits() {
         console.log('[轨道] _refreshOrbits 触发');
         if (this._orbitRecalcBusy) return;
         this._orbitRecalcBusy = true;
-        try {
-            await vsSpeak('检测到轨道变化，正在计算新轨道线。');
 
+        try {
             // 1) 清除旧轨道线
             this._createOrbitLines(true);
 
-            // 2) 保存状态 & 拉到最高
-            const savedVal = parseInt(document.getElementById('time-slider').value);
-            const savedScale = this.timeScale;
-            document.getElementById('time-slider').value = 100;
-            this.timeScale = 100;
-            this._updateTimeDisplay();
+            // 2) 动态查找中心天体（质量最大的 = 恒星）
+            const bodies = this.physics.bodies;
+            if (bodies.length < 2) {
+                this._orbitRecalcBusy = false;
+                return;
+            }
+            const centralBody = bodies.reduce((a, b) => a.mass > b.mass ? a : b);
+            const centralMass = centralBody.mass;
+            const centerPos = centralBody.position.clone();
 
-            // 对当前系统的天体进行轨道采样
-            const keys = this.physics.bodies
+            // 过滤出需要绘制轨道的 key（排除恒星自身）
+            const keys = bodies
                 .map(b => b.key)
-                .filter(k => k !== 'sun' && !k.startsWith('custom_'));
+                .filter(k => k !== centralBody.key);
 
-            // 3) 等待 10s 让轨道稳定（动画循环正常跑 100x）
-            await new Promise(r => setTimeout(r, 10000));
-
-            // 4) 暂停动画循环的物理更新，切换为手动密集采样
-            this._pausePhysics = true;
-            const trackScale = 1;  // 采样用 1x 保证平滑（每步 0.5 天）
-            const totalSteps = 5000;
-            const simDt = SIM_DT * trackScale;
-            const samples = {};
-            keys.forEach(k => { samples[k] = []; });
-
-            for (let step = 0; step < totalSteps; step++) {
-                this.physics.step(simDt);
-                // 同步 mesh 位置（采样用）
-                for (const body of this.physics.bodies) {
-                    if (body._syncMeshPosition) body._syncMeshPosition();
-                }
-                for (const key of keys) {
-                    const b = this.planets[key];
-                    if (b?.mesh) samples[key].push(b.mesh.position.clone());
-                }
-                if (step % 200 === 199) await new Promise(r => setTimeout(r, 0));
+            if (keys.length === 0) {
+                this._orbitRecalcBusy = false;
+                return;
             }
 
-            // 5) 绘制轨道线
+            // 3) 对每个天体计算开普勒轨道并绘制
             const scene = this.sceneManager.scene;
             for (const key of keys) {
-                const pts = samples[key];
-                if (pts.length < 2) continue;
+                const body = this.planets[key];
+                if (!body || !body.mesh) continue;
+
+                const pts = this._computeKeplerianOrbit(body, centralMass, centerPos);
+                if (!pts || pts.length < 3) continue;
+
                 const geo = new THREE.BufferGeometry().setFromPoints(pts);
                 const line = new THREE.Line(geo, new THREE.LineBasicMaterial({
-                    color: 0xbb5544, transparent: true, opacity: 0.35, depthTest: true,
+                    color: 0xbb5544,
+                    transparent: true,
+                    opacity: 0.35,
+                    depthTest: true,
                 }));
                 scene.add(line);
                 this._orbitLines.push(line);
             }
-            console.log('[轨道] 采样完成 步数:', totalSteps, '轨道数:', Object.keys(samples).length);
 
-            // 6) 恢复
-            this._pausePhysics = false;
-            document.getElementById('time-slider').value = savedVal;
-            this.timeScale = savedScale;
-            this._updateTimeDisplay();
-            this._orbitRecalcBusy = false;
-
-            await vsSpeak('轨道校验完成。');
+            console.log('[轨道] 开普勒轨道绘制完成 星体数:', keys.length,
+                        '中心:', centralBody.key, '质量:', centralMass.toExponential(2));
         } catch (e) {
             console.error('[轨道] _refreshOrbits 错误:', e);
-            this._pausePhysics = false;
+        } finally {
             this._orbitRecalcBusy = false;
         }
     }
@@ -509,17 +637,12 @@ class SolarSystemApp {
         this.calcStepText = document.getElementById('calc-step-text');
         this.calcDetail = document.getElementById('calc-detail');
         this.calcActions = document.getElementById('calc-actions');
-        this.btnAutoLaunch = document.getElementById('btn-auto-launch');
         this.btnManual = document.getElementById('btn-manual');
         this.btnCalcClose = document.getElementById('calc-close');
         this.manualSpeedInput = document.getElementById('manual-speed');
 
         this.btnCalcClose?.addEventListener('click', () => {
             this.calcOverlay.classList.add('hidden');
-        });
-        this.btnAutoLaunch?.addEventListener('click', () => {
-            this.calcOverlay.classList.add('hidden');
-            this._autoLaunch();
         });
         this.btnManual?.addEventListener('click', () => {
             this.calcOverlay.classList.add('hidden');
@@ -630,19 +753,6 @@ class SolarSystemApp {
             displacement: interceptPos.distanceTo(planetPos),
             launchDir,
             startPos: startPos.clone(),
-        };
-    }
-
-    // ==================== 自动发射 ====================
-    _autoLaunch() {
-        const r = this._calcResult;
-        this._spawnProbe(r.startPos);
-        this.probeData = {
-            start: r.startPos.clone(),
-            velocity: r.launchDir.clone().multiplyScalar(PROBE_SPEED),
-            body: this._calcBody,
-            moonKey: this._calcMoon?.key || null,
-            isManual: false,
         };
     }
 
@@ -1041,11 +1151,24 @@ class SolarSystemApp {
             if (this.probeData.isManual && this._recalling) {
                 this._cleanProbeKeepAim();
             } else {
-                // 手动发射且无锁定目标：自由飞行
+                // 手动发射且无锁定目标：自由飞行 + 碰撞检测所有天体
                 if (this.probeData.isManual && !this.probeData.body) {
                     this.probeMesh.position.add(
                         this.probeData.velocity.clone().multiplyScalar(dt)
                     );
+                    // 手动发射探测器：遍历当前物理引擎中所有天体检测碰撞
+                    for (const body of this.physics.bodies) {
+                        if (!body.mesh || !body.visualRadius) continue;
+                        const toTarget = body.mesh.position.clone().sub(this.probeMesh.position);
+                        const dist = toTarget.length();
+                        const vr = body.visualRadius || 1;
+                        // Mesh 被 SYSTEM_SCALE 缩放，碰撞半径需对应换算
+                        if (dist < vr * SYSTEM_SCALE * 1.5) {
+                            this._destroyProbe();
+                            this._showSurface(body.key, null);
+                            break;
+                        }
+                    }
                 } else {
                     // 自动发射或有锁定目标：引导飞向目标
                     const body = this.probeData.body;
@@ -1064,7 +1187,8 @@ class SolarSystemApp {
                         );
 
                         const vr = body?.visualRadius || 1;
-                        if (dist < vr * 1.5) {
+                        // Mesh 被 SYSTEM_SCALE 缩放，碰撞半径需对应换算
+                        if (dist < vr * SYSTEM_SCALE * 1.5) {
                             const pk = body.key;
                             const mk = this.probeData.moonKey;
                             this._destroyProbe();

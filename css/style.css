@@ -624,6 +624,15 @@ body {
 }
 .probe-launcher-fire:hover { background: var(--fui-cyan); color: #000; }
 
+.probe-launcher-recall {
+    width: 100%; padding: 6px; margin-top: 6px;
+    border: 1px solid rgba(255, 80, 80, 0.5);
+    background: rgba(255, 80, 80, 0.1); color: #f66;
+    font-family: var(--fui-font-display); font-size: 11px; letter-spacing: 2px;
+    cursor: pointer; transition: all 0.3s;
+}
+.probe-launcher-recall:hover { background: #f66; color: #000; }
+
 /* ========== FUI 数据显示框（按钮悬停） ========== */
 .fui-data-display {
     position: fixed;

@@ -121,13 +121,14 @@ export class FocusController {
     // ==================== 输入绑定 ====================
     _bindFocusInput() {
         const canvas = this.canvas;
-        const MIN = 1, MAX = 50, ZOOM = 1.12;
+        const MIN = 1, MAX = 500, ZOOM = 1.12;
         const H_ROT = 0.005, V_ROT = 0.005;
 
         canvas.addEventListener('wheel', (e) => {
             if (!this._focusOffset) return;
             e.preventDefault();
-            this._focusOffset.multiplyScalar(e.deltaY > 0 ? ZOOM : 1 / ZOOM);
+            // 向下滚动滚轮 → 放大(拉近)，向上滚动 → 缩小(拉远)
+            this._focusOffset.multiplyScalar(e.deltaY > 0 ? 1 / ZOOM : ZOOM);
             const d = this._focusOffset.length();
             if (d < MIN) this._focusOffset.normalize().multiplyScalar(MIN);
             if (d > MAX) this._focusOffset.normalize().multiplyScalar(MAX);
