@@ -2789,6 +2789,51 @@ body {
 }
 .pl-close-btn:hover { background: var(--fui-accent-dim); border-color: var(--fui-cyan); }
 
+/* 实验室视角切换 + 时间控制 */
+.pl-vp-btns {
+    position: absolute; bottom: 60px; right: 12px; z-index: 20;
+    display: flex; gap: 4px;
+}
+.pl-vp-btns .vp-btn {
+    padding: 4px 10px; font-size: 10px; border: 1px solid var(--fui-accent-dim);
+    background: rgba(0,0,0,0.5); color: var(--fui-text-dim);
+    cursor: pointer; font-family: var(--fui-font-display);
+    transition: all 0.2s;
+}
+.pl-vp-btns .vp-btn:hover { border-color: var(--fui-cyan); color: var(--fui-cyan); }
+.pl-vp-btns .vp-btn.active { background: var(--fui-cyan); color: #000; }
+
+.pl-time-control {
+    position: absolute; bottom: 24px; right: 12px; z-index: 20;
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(10,16,24,0.65); backdrop-filter: blur(10px);
+    padding: 6px 12px; border: 1px solid rgba(255,255,255,0.08);
+}
+.pl-time-control .time-label {
+    color: rgba(255,255,255,0.45); font-size: 9px; white-space: nowrap;
+    user-select: none; letter-spacing: 1px; text-transform: uppercase;
+    font-family: var(--fui-font-display);
+}
+.pl-time-slider {
+    -webkit-appearance: none; appearance: none; width: 80px; height: 3px;
+    border-radius: 2px;
+    background: linear-gradient(90deg, #2c5e8a, #5aaaff) no-repeat;
+    background-size: var(--slider-pct, 30%) 100%;
+    background-color: rgba(255,255,255,0.1);
+    outline: none; cursor: pointer;
+}
+.pl-time-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 12px; height: 12px;
+    background: #fff; border-radius: 2px; cursor: pointer;
+    box-shadow: 0 0 8px rgba(90,170,255,0.8);
+}
+.pl-time-display {
+    color: #fff; font-size: 10px; font-weight: 600; min-width: 48px;
+    text-align: center; font-family: var(--fui-font-display);
+    padding: 1px 4px; background: rgba(90,170,255,0.06);
+    border: 1px solid rgba(90,170,255,0.15);
+}
+
 /* ========== 飞船导航面板 — FUI ========== */
 .ship-nav-panel {
     position: fixed; inset: 0; z-index: 99999;

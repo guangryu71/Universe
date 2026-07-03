@@ -4,6 +4,51 @@
 // ============================================================
 import * as THREE from 'three';
 
+/** 全局可调参数（直接修改此对象即可实时生效） */
+export const HOLOGRAM_CFG = {
+    // ---- 轨道 ----
+    orbitSpacing:    0.28,   // 等距轨道间距
+    orbitFirstRadius: 0.35,  // 最内圈轨道半径
+    orbitRingWidth:  0.005,  // 轨道环线宽
+    orbitRingOpacity: 0.2,   // 轨道环透明度
+
+    // ---- 行星大小 ----
+    planetSizeScale: 0.15,  // 行星视觉半径 × 此值
+    planetSizeMin:   0.03,   // 最小行星显示尺寸
+
+    // ---- 公转 ----
+    orbitSpeedMin:   0.8,    // 公转速度最小值
+    orbitSpeedRange: 0.6,    // 公转速度随机范围（min + rand * range）
+    orbitAnimMult:   0.08,   // 公转动画倍率 (dt * speed * mult)
+
+    // ---- 太阳 ----
+    sunSize:         0.25,   // 太阳球体半径
+    sunGlowSize:     0.3,   // 太阳光晕半径
+    sunGlowOpacity:  0.35,
+    sunBreathAmp:    0.3,   // 脉动幅度
+    sunBreathFreq:   1.6,    // 脉动频率
+
+    // ---- 全息外壳 ----
+    shellRadius:     2.5,    // 外发光壳半径
+    wireframeRadius: 2.35,    // 线框半径
+    wireframeOpacity: 0.25,
+
+    // ---- 全息整体 ----
+    rotationSpeed:   0.002,  // 全息系统自转速度 (rad/frame)
+    wireRotX:        -0.1,    // 线框 X 轴自转速度
+    wireRotZ:        0,    // 线框 Z 轴自转速度
+
+    // ---- 缩放 ----
+    zoomMin:         0.28,
+    zoomMax:         3,
+    zoomStep:        0.06,
+
+    // ---- 亮度 ----
+    emissiveNormal:  0.3,
+    emissiveHover:   0.8,
+    emissiveFocused: 1.2,
+};
+
 export class Hologram {
     /**
      * @param {THREE.Group} parent — 挂载到 shipGroup
@@ -49,29 +94,22 @@ export class Hologram {
         this._rebuildPlanets();
     }
 
-    /** 重建全息行星 */
+    /** 重建全息行星 — 等间距轨道 */
     _rebuildPlanets() {
+        const cfg = HOLOGRAM_CFG;
+
         // 清空旧行星
         this.planetMeshes.forEach(m => { m.parent?.remove(m); m.geometry?.dispose(); m.material?.dispose(); });
         this.planetMeshes = [];
         this.planetAnimData = [];
 
-        // 找恒星
-        const starBody = this.bodies.find(b => b.isStar);
-        const planets = this.bodies.filter(b => !b.isStar && b.mesh);
+        // 找恒星（质量最大的天体为中心恒星）
+        const sorted = [...this.bodies].sort((a, b) => b.mass - a.mass);
+        const starBody = sorted[0];
+        const planets = this.bodies.filter(b => b !== starBody && b.mesh);
         if (planets.length === 0) return;
 
-        // 计算最大轨道半径（场景坐标）
         const starPos = starBody?.mesh?.position || new THREE.Vector3(0, 0, 0);
-        let maxDist = 1;
-        const orbitData = [];
-        for (const b of planets) {
-            const d = b.mesh.position.distanceTo(starPos);
-            if (d > maxDist) maxDist = d;
-        }
-
-        // 轨道缩放：最大行星轨道映射到全息球半径 1.8
-        const SCALE = 1.8 / maxDist;
 
         // 排序（按轨道半径升序）
         planets.sort((a, b) => {
@@ -80,57 +118,88 @@ export class Hologram {
             return da - db;
         });
 
+        // 等间距轨道：内圈半径 + (索引 × 间距)
+        const orbitRadius0 = cfg.orbitFirstRadius;
+        const spacing = cfg.orbitSpacing;
+
         planets.forEach((b, idx) => {
-            const dist = b.mesh.position.distanceTo(starPos);
-            const orbit = dist * SCALE;
+            const orbit = orbitRadius0 + idx * spacing;
             const col = b.color || 0x4488cc;
-            const size = Math.max(0.03, (b.visualRadius || 1) * 0.025);
+            const size = Math.max(cfg.planetSizeMin, (b.visualRadius || 1) * cfg.planetSizeScale);
 
             // 轨道环
-            const ring = new THREE.Mesh(new THREE.RingGeometry(orbit - 0.005, orbit + 0.005, 64),
-                new THREE.MeshBasicMaterial({ color: 0x00d4ff, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false }));
+            const ring = new THREE.Mesh(
+                new THREE.RingGeometry(orbit - cfg.orbitRingWidth, orbit + cfg.orbitRingWidth, 64),
+                new THREE.MeshBasicMaterial({
+                    color: 0x00d4ff, transparent: true,
+                    opacity: cfg.orbitRingOpacity, side: THREE.DoubleSide, depthWrite: false,
+                })
+            );
             ring.rotation.x = -Math.PI / 2;
             this.group.add(ring);
 
             // 行星小球
-            const mesh = new THREE.Mesh(new THREE.SphereGeometry(size, 16, 16),
-                new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.3, roughness: 0.6, metalness: 0.3 }));
-            const startAngle = (idx / planets.length) * Math.PI * 2 + (idx % 2 === 0 ? 0 : Math.PI / planets.length);
+            const mesh = new THREE.Mesh(
+                new THREE.SphereGeometry(size, 16, 16),
+                new THREE.MeshStandardMaterial({
+                    color: col, emissive: col,
+                    emissiveIntensity: cfg.emissiveNormal,
+                    roughness: 0.6, metalness: 0.3,
+                })
+            );
+            const startAngle = (idx / planets.length) * Math.PI * 2
+                + (idx % 2 === 0 ? 0 : Math.PI / planets.length);
             mesh.position.x = Math.cos(startAngle) * orbit;
             mesh.position.z = Math.sin(startAngle) * orbit;
+            const speed = cfg.orbitSpeedMin + Math.random() * cfg.orbitSpeedRange;
             mesh.userData = {
                 body: b, planetName: b.name || b.key, isPlanet: true,
-                orbitRadius: orbit, orbitSpeed: 0.8 + Math.random() * 0.6, startAngle,
+                orbitRadius: orbit, orbitSpeed: speed, startAngle,
                 currentAngle: startAngle, size,
             };
 
             // 土星环
-            if (b.name && b.name.includes('土星')) {
-                const sr = new THREE.Mesh(new THREE.RingGeometry(size * 1.4, size * 2.2, 24),
-                    new THREE.MeshBasicMaterial({ color: col, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
+            if (b.name && String(b.name).includes('土星')) {
+                const sr = new THREE.Mesh(
+                    new THREE.RingGeometry(size * 1.4, size * 2.2, 24),
+                    new THREE.MeshBasicMaterial({
+                        color: col, transparent: true, opacity: 0.5,
+                        side: THREE.DoubleSide, depthWrite: false,
+                    })
+                );
                 sr.rotation.x = Math.PI / 2.5;
                 mesh.add(sr);
             }
 
             this.group.add(mesh);
             this.planetMeshes.push(mesh);
-            this.planetAnimData.push({ mesh, orbit, speed: 0.8 + Math.random() * 0.6, startAngle, currentAngle: startAngle });
+            this.planetAnimData.push({ mesh, orbit, speed, startAngle, currentAngle: startAngle });
         });
     }
 
     // ============ 3D 构建（太阳、外壳、线框）============
     _build() {
+        const cfg = HOLOGRAM_CFG;
+
         // 太阳
-        const sun = new THREE.Mesh(new THREE.SphereGeometry(0.14, 32, 32), new THREE.MeshBasicMaterial({ color: 0xffcc44 }));
+        const sun = new THREE.Mesh(
+            new THREE.SphereGeometry(cfg.sunSize, 32, 32),
+            new THREE.MeshBasicMaterial({ color: 0xffcc44 })
+        );
         this.group.add(sun);
-        const sunGlow = new THREE.Mesh(new THREE.SphereGeometry(0.25, 32, 32),
-            new THREE.MeshBasicMaterial({ color: 0xffaa22, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }));
+        const sunGlow = new THREE.Mesh(
+            new THREE.SphereGeometry(cfg.sunGlowSize, 32, 32),
+            new THREE.MeshBasicMaterial({
+                color: 0xffaa22, transparent: true, opacity: cfg.sunGlowOpacity,
+                blending: THREE.AdditiveBlending, depthWrite: false,
+            })
+        );
         this.group.add(sunGlow);
         this._sunGlowMat = sunGlow.material;
         this._sunScale = { base: 1 };
 
         // 外全息壳
-        const shellGeo = new THREE.SphereGeometry(2.0, 48, 48);
+        const shellGeo = new THREE.SphereGeometry(cfg.shellRadius, 48, 48);
         const shellMat = new THREE.ShaderMaterial({
             uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(0x00d4ff) }, uColor2: { value: new THREE.Color(0x9ce8ff) }, uIntensity: { value: 1.0 } },
             vertexShader: `varying vec3 vN;varying vec3 vP;varying vec3 vW;void main(){vN=normalize(normalMatrix*normal);vP=position;vW=(modelMatrix*vec4(position,1.0)).xyz;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
@@ -157,7 +226,12 @@ export class Hologram {
         this.group.add(new THREE.Mesh(shellGeo, shellMat));
 
         // 线框
-        const wm = new THREE.Mesh(new THREE.IcosahedronGeometry(2.0, 1), new THREE.MeshBasicMaterial({ color: 0x00d4ff, wireframe: true, transparent: true, opacity: 0.25 }));
+        const wm = new THREE.Mesh(
+            new THREE.IcosahedronGeometry(cfg.wireframeRadius, 1),
+            new THREE.MeshBasicMaterial({
+                color: 0x00d4ff, wireframe: true, transparent: true, opacity: cfg.wireframeOpacity,
+            })
+        );
         this._wireMesh = wm;
         this.group.add(wm);
     }
@@ -287,8 +361,9 @@ export class Hologram {
 
     /** 由 ShipModule 调用，传入滚轮 delta */
     handleWheel(deltaY) {
-        const d = deltaY > 0 ? -0.06 : 0.06;
-        this.currentScale = Math.max(0.28, Math.min(1.8, this.currentScale + d));
+        const cfg = HOLOGRAM_CFG;
+        const d = deltaY > 0 ? -cfg.zoomStep : cfg.zoomStep;
+        this.currentScale = Math.max(cfg.zoomMin, Math.min(cfg.zoomMax, this.currentScale + d));
         this.group.scale.setScalar(this.currentScale);
 
         if (this.currentScale <= 0.42 && !this.isUIActive) {
@@ -300,24 +375,31 @@ export class Hologram {
 
     // ============ 每帧 ============
     update(dt, time) {
+        const cfg = HOLOGRAM_CFG;
+
         // shader
         if (this._shellMat) this._shellMat.uniforms.uTime.value = time;
 
         // 全息旋转
-        const rotSpeed = this.focusedPlanet ? 0 : 0.001;
+        const rotSpeed = this.focusedPlanet ? 0 : cfg.rotationSpeed;
         this.group.rotation.y += dt * rotSpeed;
 
         // 线框旋转（聚焦时停止）
-        if (this._wireMesh && !this.focusedPlanet) { this._wireMesh.rotation.x += dt * 0.5; this._wireMesh.rotation.z += dt * 0.3; }
+        if (this._wireMesh && !this.focusedPlanet) {
+            this._wireMesh.rotation.x += dt * cfg.wireRotX;
+            this._wireMesh.rotation.z += dt * cfg.wireRotZ;
+        }
 
         // 太阳呼吸
-        const sb = 1 + Math.sin(time * 2.0) * 0.08;
-        if (this._sunGlowMat) { this._sunGlowMat.opacity = 0.25 + Math.sin(time * 3.0) * 0.1; }
+        if (this._sunGlowMat) {
+            this._sunGlowMat.opacity = cfg.sunGlowOpacity
+                + Math.sin(time * cfg.sunBreathFreq) * cfg.sunBreathAmp;
+        }
 
         // 行星公转（未聚焦时）
         if (!this.focusedPlanet) {
             this.planetAnimData.forEach(pd => {
-                pd.currentAngle += dt * pd.speed * 0.5;
+                pd.currentAngle += dt * pd.speed * cfg.orbitAnimMult;
                 pd.mesh.position.x = Math.cos(pd.currentAngle) * pd.orbit;
                 pd.mesh.position.z = Math.sin(pd.currentAngle) * pd.orbit;
             });
@@ -355,9 +437,9 @@ export class Hologram {
         const hits = this.raycaster.intersectObjects(this.planetMeshes, false);
 
         this.planetMeshes.forEach(pm => {
-            if (pm === hits[0]?.object && !this.focusedPlanet) pm.material.emissiveIntensity = 0.8;
-            else if (pm === this.focusedPlanet) pm.material.emissiveIntensity = 1.2;
-            else pm.material.emissiveIntensity = 0.3;
+            if (pm === hits[0]?.object && !this.focusedPlanet) pm.material.emissiveIntensity = cfg.emissiveHover;
+            else if (pm === this.focusedPlanet) pm.material.emissiveIntensity = cfg.emissiveFocused;
+            else pm.material.emissiveIntensity = cfg.emissiveNormal;
         });
 
         // 检测全息壳悬停

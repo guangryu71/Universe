@@ -969,9 +969,9 @@ class SolarSystemApp {
 
             this.bodyEditor.confirmCreate({ name, mass, radius, color, visualR, x, y, z });
             // 确认后隐藏所有引导元素
-            if (this.bodyEditor.guides) {
-                this.bodyEditor.guides.hide();
-                this.bodyEditor.guides.clearAll();
+            if (this.bodyEditor.placementCtrl.guides) {
+                this.bodyEditor.placementCtrl.guides.hide();
+                this.bodyEditor.placementCtrl.guides.clearAll();
             }
             this._placementPos = null;
             confirmBtn.disabled = true;
@@ -985,8 +985,8 @@ class SolarSystemApp {
         // ---- 视觉大小实时更新预览球 ----
         document.getElementById('abp-visual')?.addEventListener('input', (e) => {
             const val = parseFloat(e.target.value) || 1.0;
-            if (this.bodyEditor && this.bodyEditor.guides) {
-                this.bodyEditor.guides.setPreviewScale(val);
+            if (this.bodyEditor && this.bodyEditor.placementCtrl.guides) {
+                this.bodyEditor.placementCtrl.guides.setPreviewScale(val);
             }
         });
 
