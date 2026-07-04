@@ -80,6 +80,19 @@ export class TimeParticles {
         p.width = Math.random() * 1.5 + 0.5;
     }
 
+    /** 外部控制：启动粒子（按方向持续播放） */
+    start(dir) {
+        this._active = true;
+        this._fading = false;
+        this._dir = dir > 0 ? 1 : -1;
+        this._speed = this.CONFIG.maxSpeed * 0.7;
+    }
+
+    /** 外部控制：停止粒子 */
+    stop() {
+        if (this._active) this._fading = true;
+    }
+
     setDragging(dragging, sliderVal, prevVal) {
         if (dragging && sliderVal > prevVal) {
             // 向右滑 → 加速 → 粒子从左向右

@@ -17,12 +17,59 @@
     <!-- Three.js 画布容器 -->
     <div id="canvas-container"></div>
 
-    <!-- 时间流速控制（右下角） -->
+    <!-- 时间流速控制（全息表盘） -->
     <div id="time-control">
-        <span class="time-label">慢速</span>
-        <input type="range" id="time-slider" min="1" max="100" value="30" step="1">
-        <span class="time-label">快速</span>
-        <span id="time-display">正常速度</span>
+      <!-- 隐藏的原始滑块（用于数据绑定） -->
+      <input type="range" id="time-slider" min="1" max="100" value="30" step="1" style="display:none;">
+
+      <div class="chrono-wrapper">
+        <div class="center-hub"></div>
+
+        <svg class="sector-ring" viewBox="0 0 200 200">
+          <defs>
+            <radialGradient id="sectorGrad" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stop-color="rgba(0,243,255,0.01)"/>
+              <stop offset="45%" stop-color="rgba(0,243,255,0.05)"/>
+              <stop offset="80%" stop-color="rgba(0,243,255,0.1)"/>
+              <stop offset="100%" stop-color="rgba(188,19,254,0.28)"/>
+            </radialGradient>
+            <linearGradient id="sectorEdgeGrad" gradientUnits="userSpaceOnUse" x1="5" y1="100" x2="195" y2="100">
+              <stop offset="0%" stop-color="rgba(0,243,255,0.3)"/>
+              <stop offset="100%" stop-color="rgba(188,19,254,0.8)"/>
+            </linearGradient>
+            <filter id="sectorGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="3" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+            <filter id="edgeGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="2" result="blur"/>
+              <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+          <path id="sectorPath" fill="url(#sectorGrad)" filter="url(#sectorGlow)" d=""/>
+          <path id="sectorInner1" fill="none" stroke="rgba(0,243,255,0.12)" stroke-width="0.5" d=""/>
+          <path id="sectorInner2" fill="none" stroke="rgba(0,243,255,0.09)" stroke-width="0.5" d=""/>
+          <path id="sectorInner3" fill="none" stroke="rgba(0,243,255,0.06)" stroke-width="0.5" d=""/>
+          <path id="sectorEdge" fill="none" stroke="url(#sectorEdgeGrad)" stroke-width="1.5" filter="url(#edgeGlow)" d=""/>
+        </svg>
+
+        <svg class="tick-ring" viewBox="0 0 200 200">
+          <circle cx="100" cy="100" r="95" fill="none" stroke="rgba(0,243,255,0.08)" stroke-width="0.5"/>
+          <g id="ticks"></g>
+        </svg>
+
+        <div class="pointer-layer" id="pointerLayer">
+          <div class="pointer">
+            <div class="pointer-tip"></div>
+            <div class="pointer-beam"></div>
+            <div class="pointer-tail"></div>
+          </div>
+        </div>
+
+        <button class="ctrl-btn btn-left" id="btnLeft"><span>↑</span></button>
+        <button class="ctrl-btn btn-right" id="btnRight"><span>↑</span></button>
+      </div>
+      <span id="time-display">1:0.12x</span>
     </div>
 
     <!-- 底部操作提示 -->

@@ -115,6 +115,7 @@ class SolarSystemApp {
         this.timeScale = 0.12;
         this.timeParticles = new TimeParticles();
         this._setupTimeSlider();
+        this._setupTimeDial();
 
         // --- 音效预加载 ---
         soundManager.init();
@@ -282,8 +283,8 @@ class SolarSystemApp {
                 this.timeDisplay.textContent = '1:' + ts.toFixed(2) + 'x';
             }
             // 拖动中 → 粒子播放（传前后值判断向右划）
-            if (this.timeParticles) {
-                this.timeParticles.setDragging(this._sliderDragging, val, this._prevSliderVal);
+            if (this.timeParticles && this._sliderDragging) {
+                this.timeParticles.setDragging(true, val, this._prevSliderVal);
             }
             // 拖动中 → 滑块方向音效
             if (this._sliderDragging && val !== this._prevSliderVal) {
@@ -336,6 +337,137 @@ class SolarSystemApp {
             const pct = ((val - 1) / 99) * 100;
             this.slider.style.setProperty('--slider-pct', pct + '%');
         }
+    }
+
+    // ==================== 全息表盘集成 ====================
+    _setupTimeDial() {
+        // 生成刻度
+        const ticksG = document.getElementById('ticks');
+        if (ticksG && ticksG.children.length === 0) {
+            const totalTicks = 30;
+            const ns = 'http://www.w3.org/2000/svg';
+            for (let i = 0; i <= totalTicks; i++) {
+                const angle = -90 + (i / totalTicks) * 180;
+                const isMajor = i % 5 === 0;
+                const len = isMajor ? 10 : 4;
+                const r = 95;
+                const rad = (angle - 90) * Math.PI / 180;
+                const x1 = 100 + r * Math.cos(rad);
+                const y1 = 100 + r * Math.sin(rad);
+                const x2 = 100 + (r - len) * Math.cos(rad);
+                const y2 = 100 + (r - len) * Math.sin(rad);
+                const line = document.createElementNS(ns, 'line');
+                line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+                line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+                line.setAttribute('stroke', isMajor ? '#00f3ff' : 'rgba(0,243,255,0.25)');
+                line.setAttribute('stroke-width', isMajor ? 1.5 : 0.5);
+                ticksG.appendChild(line);
+            }
+        }
+
+        const pointerLayer = document.getElementById('pointerLayer');
+        const secPath = document.getElementById('sectorPath');
+        const secEdge = document.getElementById('sectorEdge');
+        const secIn1 = document.getElementById('sectorInner1');
+        const secIn2 = document.getElementById('sectorInner2');
+        const secIn3 = document.getElementById('sectorInner3');
+        const btnL = document.getElementById('btnLeft');
+        const btnR = document.getElementById('btnRight');
+
+        /** 根据滑块值更新指针角度 + 扇形 */
+        const syncDial = () => {
+            const val = parseInt(this.slider?.value) || 30;
+            // slider 1→100 → 角度 -90→90
+            const angle = -90 + (val - 1) / 99 * 180;
+            if (pointerLayer) pointerLayer.style.transform = `rotate(${angle}deg)`;
+
+            // 更新 SVG 扇形
+            const r = 95, cx = 100, cy = 100;
+            const startAngle = -90;
+            if (angle <= startAngle) {
+                [secPath, secEdge, secIn1, secIn2, secIn3].forEach(el => el?.setAttribute('d', ''));
+                return;
+            }
+            const endAngle = Math.min(angle, 90);
+            const span = endAngle - startAngle;
+            const largeArc = span >= 180 ? 1 : 0;
+            const toRad = (d) => d * Math.PI / 180;
+            const pt = (a, rad) => ({ x: cx + rad * Math.sin(toRad(a)), y: cy - rad * Math.cos(toRad(a)) });
+            const sP = pt(startAngle, r), eP = pt(endAngle, r);
+            const sectorD = `M ${cx} ${cy} L ${sP.x.toFixed(2)} ${sP.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${eP.x.toFixed(2)} ${eP.y.toFixed(2)} Z`;
+            if (secPath) secPath.setAttribute('d', sectorD);
+            const edgeD = `M ${sP.x.toFixed(2)} ${sP.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} 1 ${eP.x.toFixed(2)} ${eP.y.toFixed(2)}`;
+            if (secEdge) secEdge.setAttribute('d', edgeD);
+            [30, 55, 75].forEach((rad, idx) => {
+                const el = [secIn1, secIn2, secIn3][idx];
+                if (!el) return;
+                const s = pt(startAngle, rad), e = pt(endAngle, rad);
+                el.setAttribute('d', `M ${s.x.toFixed(2)} ${s.y.toFixed(2)} A ${rad} ${rad} 0 ${largeArc} 1 ${e.x.toFixed(2)} ${e.y.toFixed(2)}`);
+            });
+        };
+
+        // 滑块变化时同步表盘
+        this.slider?.addEventListener('input', syncDial);
+
+        // 按钮长按连续步进
+        this._dialInterval = null;
+        const startHold = (dir, btn) => {
+            if (this._dialInterval) return;
+            btn.classList.add('pressing');
+            this._stepSlider(dir);
+            // 音效（只播放一次）
+            const sm = window.__soundManager;
+            if (sm && sm.isReady()) {
+                sm.play(dir > 0 ? 'inhale' : 'whoosh', { volume: 0.45 });
+            }
+            // 粒子持续播放
+            if (this.timeParticles) this.timeParticles.start(dir);
+            let count = 0;
+            this._dialInterval = setInterval(() => {
+                count++;
+                const step = Math.min(1 + Math.floor(count / 8), 5);
+                for (let i = 0; i < step; i++) this._stepSlider(dir);
+            }, 50);
+        };
+        const stopHold = () => {
+            if (this._dialInterval) {
+                clearInterval(this._dialInterval);
+                this._dialInterval = null;
+            }
+            btnL?.classList.remove('pressing');
+            btnR?.classList.remove('pressing');
+            // 停止粒子
+            if (this.timeParticles) this.timeParticles.stop();
+        };
+
+        btnL?.addEventListener('mousedown', () => startHold(-1, btnL));
+        btnR?.addEventListener('mousedown', () => startHold(1, btnR));
+        window.addEventListener('mouseup', stopHold);
+        window.addEventListener('mouseleave', stopHold);
+
+        // 键盘长按连续步进
+        const keyState = {};
+        document.addEventListener('keydown', (e) => {
+            if (keyState[e.key]) return;
+            keyState[e.key] = true;
+            if (e.key === 'ArrowLeft') startHold(-1, btnL);
+            if (e.key === 'ArrowRight') startHold(1, btnR);
+        });
+        document.addEventListener('keyup', (e) => {
+            keyState[e.key] = false;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') stopHold();
+        });
+
+        syncDial();
+    }
+
+    /** 步进滑块值 */
+    _stepSlider(dir) {
+        if (!this.slider) return;
+        let v = parseInt(this.slider.value) + dir;
+        v = Math.max(1, Math.min(100, v));
+        this.slider.value = v;
+        this.slider.dispatchEvent(new Event('input'));
     }
 
     // ==================== 视角平面切换（XY / XZ / YZ） ====================

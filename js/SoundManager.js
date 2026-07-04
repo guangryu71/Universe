@@ -19,6 +19,7 @@ const SOUND_FILES = {
     sliderSwoosh:  'soundEffects/mixkit-long-sweeping-air-swoosh-167.wav',
     // 时间减速吸音
     inhale:        'soundEffects/inhale/mixkit-sci-fi-power-3184.wav',
+    whoosh:        'soundEffects/inhale/mixkit-electric-gamma-ray-whoosh-2614.wav',
 };
 
 export class SoundManager {
