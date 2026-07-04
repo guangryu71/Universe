@@ -258,7 +258,7 @@ export class ShipModule {
             tt.textContent = hits[0].object.userData.planetName; tt.style.opacity = '1';
             mv.textContent = hits[0].object.userData.planetName.toUpperCase(); mv.style.color = '#9ce8ff';
         } else if (this._holo.isHoverShell) {
-            tt.textContent = '太阳系全息投影'; tt.style.opacity = '1';
+            tt.textContent = '星体系统全息投影'; tt.style.opacity = '1';
             mv.textContent = 'HOLOGRAM'; mv.style.color = '#9ce8ff';
         } else {
             tt.style.opacity = '0';

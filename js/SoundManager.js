@@ -17,6 +17,8 @@ const SOUND_FILES = {
     probeFire:     'soundEffects/fire/mixkit-sci-fi-plasma-gun-power-1680.wav',
     // 滑块划动
     sliderSwoosh:  'soundEffects/mixkit-long-sweeping-air-swoosh-167.wav',
+    // 时间减速吸音
+    inhale:        'soundEffects/inhale/mixkit-sci-fi-power-3184.wav',
 };
 
 export class SoundManager {

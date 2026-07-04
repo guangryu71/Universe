@@ -285,14 +285,15 @@ class SolarSystemApp {
             if (this.timeParticles) {
                 this.timeParticles.setDragging(this._sliderDragging, val, this._prevSliderVal);
             }
-            // 拖动中 → 滑块方向音效（每次向右划只播一次正向，向左播反向）
+            // 拖动中 → 滑块方向音效
             if (this._sliderDragging && val !== this._prevSliderVal) {
                 const dir = val > this._prevSliderVal ? 1 : -1;
                 if (dir !== this._lastSliderDir) {
                     this._lastSliderDir = dir;
-                    if (dir === 1) { // 只向右时播放特效
-                        const sm = window.__soundManager;
-                        if (sm && sm.isReady()) sm.playSliderSwoosh(1);
+                    const sm = window.__soundManager;
+                    if (sm && sm.isReady()) {
+                        if (dir === 1) sm.playSliderSwoosh(1);    // 向右加速
+                        else sm.play('inhale', { volume: 0.5 });   // 向左减速
                     }
                 }
             } else if (!this._sliderDragging) {
