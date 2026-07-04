@@ -1,0 +1,25 @@
+# ============================================================
+# Starry Sky Universe — Python 依赖
+# ============================================================
+# 后端服务器（标准库即可运行，无需额外安装）
+# 前端为纯 JavaScript (ES Module)，通过 CDN 加载 Three.js
+# 以下为可选功能（语音合成）的依赖
+
+# ── 核心（推荐安装） ──
+numpy>=1.21.0            # 语音合成（voice.py）核心数值计算
+pyttsx3>=2.90            # 文字转语音 (TTS) 引擎
+
+# ── 音频处理（可选但推荐） ──
+scipy>=1.7.0             # 带通滤波器 (butterworth)、WAV 读写
+sounddevice>=0.4.0       # 音频播放后端（直接播放 numpy 音频）
+
+# ── 音频播放备选方案（二选一即可） ──
+# pygame>=2.0.0          # 备选音频播放后端（如 sounddevice 不可用）
+
+# ── 安装方式 ──
+#   pip install -r requirements.txt
+# ── 一键启动 ──
+#   python start.py       # 启动 HTTP 服务器 (端口 8000)
+# ── 语音合成（CLI） ──
+#   python voice_handle/voice.py "你好世界"
+#   python voice_handle/voice.py -p dalek "EXTERMINATE!"
