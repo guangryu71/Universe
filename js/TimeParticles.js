@@ -1,5 +1,6 @@
 // ============================================================
 // TimeParticles.js — 时间流速粒子特效（全屏）
+// 提速：光线自右向左；降速：光线自左向右
 // ============================================================
 
 export class TimeParticles {
@@ -10,12 +11,16 @@ export class TimeParticles {
         this._speed = 0;
         this._active = false;
         this._fading = false;
+        this._dragging = false;
+        this._lastDrag = 0;
+        this._dir = 1;              // 运动方向：1 = 左→右，-1 = 右→左
 
         this.CONFIG = {
             maxSpeed: 120,
-            particlePool: 200,
-            trailOpacity: 0.15,
+            particlePool: 260,
+            trailOpacity: 0.16,
             fadeDecay: 0.92,
+            dragTimeout: 1000,      // 拖拽无输入时的兜底淡出时间（ms）
         };
 
         this._initCanvas();
@@ -54,38 +59,44 @@ export class TimeParticles {
 
     _createParticle() {
         return {
-            x: 0,
+            x: Math.random() * window.innerWidth,
             y: Math.random() * window.innerHeight,
             vx: 1,
             length: 0,
             opacity: 0,
             width: 0.5,
-            dir: 1, // 1=右, -1=左
+            dir: 1,
         };
     }
 
-    resetParticle(p, dir) {
+    /**
+     * 重置单个粒子
+     * @param {number} dir 1 = 向左→右，-1 = 右→左
+     * @param {boolean} spread true = 直接铺满全屏（启动时），false = 从屏幕外进场
+     */
+    resetParticle(p, dir, spread = false) {
         const w = window.innerWidth;
         p.dir = dir;
-        if (dir > 0) {
-            p.x = -Math.random() * 60;
-            p.vx = Math.random() * 2 + 1;
-        } else {
-            p.x = w + Math.random() * 60;
-            p.vx = -(Math.random() * 2 + 1);
-        }
+        p.vx = (Math.random() * 2.2 + 1) * dir;
+        p.x = spread
+            ? Math.random() * w
+            : (dir > 0 ? -Math.random() * 120 : w + Math.random() * 120);
         p.y = Math.random() * window.innerHeight;
-        p.length = Math.random() * 30 + 15;
-        p.opacity = Math.random() * 0.4 + 0.1;
-        p.width = Math.random() * 1.5 + 0.5;
+        p.length = Math.random() * 40 + 20;
+        p.opacity = Math.random() * 0.45 + 0.15;
+        p.width = Math.random() * 1.6 + 0.6;
     }
 
-    /** 外部控制：启动粒子（按方向持续播放） */
+    /** 外部控制：启动粒子（dir > 0 提速 → 光线右→左；dir < 0 降速 → 光线左→右） */
     start(dir) {
+        const moveDir = dir > 0 ? -1 : 1;
         this._active = true;
         this._fading = false;
-        this._dir = dir > 0 ? 1 : -1;
-        this._speed = this.CONFIG.maxSpeed * 0.7;
+        this._dragging = false;
+        this._dir = moveDir;
+        this._speed = this.CONFIG.maxSpeed * 0.75;
+        // 重新铺满全屏，避免所有光线挤成一绺从左往右跑
+        this.particles.forEach(p => this.resetParticle(p, moveDir, true));
     }
 
     /** 外部控制：停止粒子 */
@@ -94,21 +105,30 @@ export class TimeParticles {
     }
 
     setDragging(dragging, sliderVal, prevVal) {
-        if (dragging && sliderVal > prevVal) {
-            // 向右滑 → 加速 → 粒子从左向右
+        if (dragging) {
+            this._dragging = true;
+            this._lastDrag = performance.now();
+            if (sliderVal === prevVal) return;   // 数值未变时保持当前方向
+
+            const accel = sliderVal > prevVal;   // 向右滑 = 提速 → 光线右→左
+            const moveDir = accel ? -1 : 1;
+            const factor = accel
+                ? (sliderVal - 1) / 99
+                : 1 - (sliderVal - 1) / 99;
+
             this._active = true;
             this._fading = false;
-            this._dir = 1;
-            const factor = (sliderVal - 1) / 99;
-            this._speed = factor * this.CONFIG.maxSpeed;
-        } else if (dragging && sliderVal < prevVal) {
-            // 向左滑 → 减速 → 粒子从右向左
-            this._active = true;
-            this._fading = false;
-            this._dir = -1;
-            const factor = 1 - (sliderVal - 1) / 99;
-            this._speed = factor * this.CONFIG.maxSpeed;
+            this._speed = Math.max(factor * this.CONFIG.maxSpeed, 20);
+
+            const changed = this._dir !== moveDir ||
+                this.particles.some(p => p.length === 0);
+            this._dir = moveDir;
+            if (changed) {
+                // 方向切换或首次启动：按新方向铺满全屏
+                this.particles.forEach(p => this.resetParticle(p, moveDir, true));
+            }
         } else if (this._active) {
+            this._dragging = false;
             this._fading = true;
         }
     }
@@ -118,12 +138,19 @@ export class TimeParticles {
         const h = this.canvas.height;
         const ctx = this.ctx;
 
+        // 兜底：拖拽后若迟迟没有新的 input（松手事件丢失等），自动淡出，避免特效常驻
+        if (this._dragging && performance.now() - this._lastDrag > this.CONFIG.dragTimeout) {
+            this._dragging = false;
+            this._fading = true;
+        }
+
         if (this._fading) {
             this._speed *= this.CONFIG.fadeDecay;
             if (this._speed < 0.5) {
                 this._speed = 0;
                 this._fading = false;
                 this._active = false;
+                this.particles.forEach(p => { p.length = 0; });
                 ctx.clearRect(0, 0, w, h);
                 requestAnimationFrame(() => this._loop());
                 return;
@@ -131,8 +158,11 @@ export class TimeParticles {
         }
 
         if (this._active && this._speed > 0) {
-            ctx.fillStyle = `rgba(5, 10, 16, ${this.CONFIG.trailOpacity})`;
+            // 用 destination-out 淡出上一帧拖尾：画布本身保持透明，不会把场景遮黑
+            ctx.globalCompositeOperation = 'destination-out';
+            ctx.fillStyle = `rgba(0, 0, 0, ${this.CONFIG.trailOpacity})`;
             ctx.fillRect(0, 0, w, h);
+            ctx.globalCompositeOperation = 'source-over';
 
             const activeCount = Math.floor(
                 this.particles.length * Math.min(this._speed / 40, 1)
@@ -140,14 +170,12 @@ export class TimeParticles {
 
             for (let i = 0; i < activeCount; i++) {
                 const p = this.particles[i];
-                if (!this._fading && p.length === 0) {
-                    p.length = Math.random() * 30 + 15;
-                    p.opacity = Math.random() * 0.4 + 0.1;
-                    p.width = Math.random() * 1.5 + 0.5;
-                }
+                if (p.length === 0) this.resetParticle(p, this._dir, true);
+
                 p.x += p.vx * this._speed * 0.08;
-                if (p.dir > 0 && p.x > w) this.resetParticle(p, this._dir || 1);
-                else if (p.dir < 0 && p.x < -60) this.resetParticle(p, this._dir || -1);
+                // 整条光线完全离开屏幕后再从对侧重新进场
+                if (p.dir > 0 && p.x - p.length > w) this.resetParticle(p, this._dir);
+                else if (p.dir < 0 && p.x + p.length < 0) this.resetParticle(p, this._dir);
 
                 ctx.beginPath();
                 ctx.strokeStyle = `rgba(100, 180, 255, ${p.opacity})`;

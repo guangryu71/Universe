@@ -4,7 +4,15 @@
 
 import * as THREE from 'three';
 import { screenToNDC, colorToHex } from './utils.js';
-import { formatMass, formatDiameter } from './constants.js';
+import { formatMass, formatDiameter, AU } from './constants.js';
+import { legacyDetailsToTree } from './DetailTreeEditor.js?v=3';
+import {
+    getAllUniverseSystems,
+    loadBodyRelations,
+    loadUniverseGalaxies,
+    resolveSystemGalaxyId,
+    DEFAULT_GALAXY_ID,
+} from './UniverseRegistry.js?v=7';
 
 export class UIManager {
     /**
@@ -16,8 +24,9 @@ export class UIManager {
      * @param {function} onDismiss
      * @param {function} onProbe    - 回调 (body, moonData|null)
      * @param {function} onRecall   - 回调 收回探测器
+     * @param {function} onSurface  - 回调 (planetKey, moonKey|null) 查看地表
      */
-    constructor(camera, canvas, planets, allMoons, onBodyClick, onDismiss, onProbe, onRecall, onSpeak) {
+    constructor(camera, canvas, planets, allMoons, onBodyClick, onDismiss, onProbe, onRecall, onSpeak, onSurface) {
         this.camera = camera;
         this.canvas = canvas;
         this.planets = planets;
@@ -27,9 +36,13 @@ export class UIManager {
         this.onProbe = onProbe || (() => {});
         this.onRecall = onRecall || (() => {});
         this.onSpeak = onSpeak || (() => {});
+        this.onSurface = onSurface || (() => {});
 
         this.raycaster = new THREE.Raycaster();
         this.raycaster.params.Points.threshold = 0.5;
+
+        // 详情 txt 内容缓存（WeakMap，避免把正文写进 detailTree / localStorage）
+        this._detailContentCache = new WeakMap();
 
         // DOM
         this.card = document.getElementById('planet-card');
@@ -41,14 +54,18 @@ export class UIManager {
         this.crtScanlines = document.getElementById('crt-scanlines');
 
         // 探测器按钮
-        this.probeBtn = document.getElementById('probe-btn');
         this.recallBtn = document.getElementById('recall-btn');
         this.speakBtn = document.getElementById('speak-btn');
+        this.surfaceBtn = document.getElementById('card-surface-btn');
 
         this.activePlanet = null;
         this.activeMoon = null;
         this.cardVisible = false;
         this._clickDisabled = false;
+
+        // 关联星体：由 main.js 注入当前系统 / 跳转能力
+        this._relationContext = null;
+        this._detailRelationToken = 0;
 
         this._bindEvents();
     }
@@ -67,15 +84,6 @@ export class UIManager {
             }
         });
 
-        this.probeBtn?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const sm = window.__soundManager;
-            if (sm && sm.isReady()) sm.play('probeFire', { volume: 0.35 });
-            if (this.activePlanet) {
-                this.onProbe(this.activePlanet, this.activeMoon);
-            }
-        });
-
         this.recallBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
             this.onRecall();
@@ -84,6 +92,13 @@ export class UIManager {
         this.speakBtn?.addEventListener('click', (e) => {
             e.stopPropagation();
             if (this.activePlanet) this.onSpeak(this.activePlanet);
+        });
+
+        // 查看地表（卡片内，位于“访问星球内部数据库”下方）
+        this.surfaceBtn?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!this.activePlanet) return;
+            this.onSurface(this.activePlanet.key, this.activeMoon?.key || null);
         });
 
         this.modalClose.addEventListener('click', () => this.hideDetailModal());
@@ -97,6 +112,16 @@ export class UIManager {
 
     /** 临时禁用点击（手动发射模式） */
     setClickDisabled(disabled) { this._clickDisabled = disabled; }
+
+    /**
+     * 注入“关联星体”所需的上下文
+     * @param {object} ctx
+     * @param {function} ctx.getSystemId   — () => 当前星体系统 id
+     * @param {function} ctx.navigateToBody — (systemId, bodyKey) => void
+     */
+    setRelationContext(ctx) {
+        this._relationContext = ctx || null;
+    }
 
     /** 显示/隐藏收回探测器按钮 */
     setRecallVisible(visible) {
@@ -164,12 +189,12 @@ export class UIManager {
             titleEl.textContent = moonData.nameCN || moonData.key;
             nameEl.textContent = moonData.name;
             colorDot.style.background = moonData.color || '#888';
-            infoEl.textContent = `直径: ${moonData.diameter || '--'} | 卫星`;
+            infoEl.innerHTML = this._buildCardParams(moonData, true);
         } else {
             titleEl.textContent = body.nameCN || body.key;
             nameEl.textContent = body.name;
             colorDot.style.background = colorToHex(body.color);
-            infoEl.textContent = `质量: ${formatMass(body.mass)} | 半径: ${formatDiameter(body.realRadius)}`;
+            infoEl.innerHTML = this._buildCardParams(body, false);
         }
 
         // 卫星列表
@@ -210,7 +235,7 @@ export class UIManager {
                     '<span class="moon-name">🌙 ' + name + '</span>' +
                     '<span class="moon-info">' + info + '</span>' +
                     '<button class="moon-btn" data-moon-i="' + i + '">🔍 详情</button>' +
-                    '<button class="moon-btn" data-moon-i="' + i + '">🚀 探测</button>' +
+                    '<button class="moon-btn" data-moon-i="' + i + '">🖼 地表</button>' +
                 '</div>';
             }).join('');
         }
@@ -228,9 +253,9 @@ export class UIManager {
                 const m = moons[idx];
                 if (!m) return;
                 if (btn.textContent.includes('详情')) {
-                    this.showDetailModal(null, { key: m.key || ('moon_' + idx), name: m.name || ('卫星' + idx), nameCN: m.name || '' });
-                } else if (btn.textContent.includes('探测')) {
-                    if (this.onProbe) this.onProbe(m, null);
+                    this.showDetailModal(body, m);
+                } else if (btn.textContent.includes('地表')) {
+                    this.onSurface(body.key, m.key);
                 }
             });
         });
@@ -256,34 +281,309 @@ export class UIManager {
             info = body;
             bodyHTML = this._buildPlanetDetail(info);
         }
+
         this.modalTitle.textContent = title;
         this.modalBody.innerHTML = bodyHTML;
+
+        this._bindDetailTree();
         this.modal.classList.add('show');
+
+        // 卫星不参与星体级关联，只有星体（恒星/行星）显示关联区域
+        this._detailRelationToken++;
+        if (!moonData) this._renderDetailRelations(info);
     }
 
     hideDetailModal() {
+        this._detailRelationToken++;
         this.modal.classList.remove('show');
     }
 
+    /** 星体卡片中的基本参数（从原详情弹窗搬来） */
+    _buildCardParams(info, isMoon) {
+        const row = (label, value) =>
+            `<div class="cp-row"><span class="cp-label">${label}</span><span class="cp-value">${value}</span></div>`;
+        const rows = [];
+
+        if (info.mass) rows.push(row('质量', formatMass(info.mass)));
+
+        if (isMoon) {
+            const dia = info.diameter
+                || (info.radius ? (info.radius / 1000).toFixed(0) + ' km' : '--');
+            rows.push(row('直径', dia));
+        } else {
+            if (info.realRadius) rows.push(row('半径', formatDiameter(info.realRadius)));
+            const orbitAU = (Number(info.orbitRadius) || 0) / AU;
+            rows.push(row('轨道半径', orbitAU.toFixed(2) + ' AU'));
+        }
+
+        const colorHex = isMoon ? (info.color || '#888888') : colorToHex(info.color);
+        rows.push(row('颜色',
+            `<i class="cp-color" style="background:${colorHex}"></i>${colorHex}`));
+
+        return rows.join('');
+    }
+
     _buildPlanetDetail(body) {
-        const mass = body.mass.toExponential(2) + ' kg';
-        const radius = (body.realRadius / 1000).toFixed(0) + ' km';
-        const orbitAU = body.orbitRadius.toFixed(2) + ' AU';
-        const colorHex = '#' + body.color.getHexString();
         return `
-            <p class="section-title">📐 基本参数</p>
-            <p>质量: ${mass}<br>半径: ${radius}<br>轨道半径: ${orbitAU}<br>颜色: <span style="display:inline-block;width:14px;height:14px;background:${colorHex};border-radius:50%;vertical-align:middle;"></span> ${colorHex}</p>
-            <p class="section-title">🌍 星球档案</p>
-            <p>${body.details || '暂无详细信息'}</p>
+            <p class="section-title">🗂 星球内部数据库</p>
+            ${this._buildDetailTreeSection(body, body.details)}
+            <p class="section-title">🔗 关联星体</p>
+            <div class="detail-relations" id="detail-relations">
+                <div class="dr-empty">关联加载中…</div>
+            </div>
         `;
     }
 
     _buildMoonDetail(info) {
         return `
-            <p class="section-title">📐 卫星参数</p>
-            <p>直径: ${info.diameter || '--'}<br>颜色: <span style="display:inline-block;width:14px;height:14px;background:${info.color};border-radius:50%;vertical-align:middle;"></span></p>
-            <p class="section-title">📝 简介</p>
-            <p>${info.details || '暂无详细信息'}</p>
+            <p class="section-title">🗂 卫星内部数据库</p>
+            ${this._buildDetailTreeSection(info, info.details)}
         `;
+    }
+
+    // ---------- 关联星体 ----------
+
+    /** 渲染“关联星体”区域：主动关联 / 被动关联，路径格式 星系/星体系统/星体 */
+    async _renderDetailRelations(body) {
+        const wrap = this.modalBody.querySelector('#detail-relations');
+        if (!wrap) return;
+
+        const token = this._detailRelationToken;
+        const systemId = this._relationContext?.getSystemId?.() || null;
+        const bodyKey = body?.key;
+        if (!systemId || !bodyKey) {
+            wrap.innerHTML = '<div class="dr-empty">无法确定当前星体所属系统</div>';
+            return;
+        }
+
+        const [relRes, galRes] = await Promise.allSettled([
+            loadBodyRelations(),
+            loadUniverseGalaxies(),
+        ]);
+        if (token !== this._detailRelationToken) return;
+
+        const relations = relRes.status === 'fulfilled' && Array.isArray(relRes.value) ? relRes.value : [];
+        const galaxies = galRes.status === 'fulfilled' && Array.isArray(galRes.value) && galRes.value.length
+            ? galRes.value
+            : [{ id: DEFAULT_GALAXY_ID, name: '银河系' }];
+
+        const active = relations.filter(r => r.fromSystemId === systemId && r.fromKey === bodyKey);
+        const passive = relations.filter(r => r.toSystemId === systemId && r.toKey === bodyKey);
+        if (!active.length && !passive.length) {
+            wrap.innerHTML = '<div class="dr-empty">该星体暂无关联星体</div>';
+            return;
+        }
+
+        const systemById = new Map(getAllUniverseSystems().map(s => [s.id, s]));
+        const galaxyById = new Map(galaxies.map(g => [g.id, g]));
+
+        /** 把关联的另一端解析成 星系 / 星体系统 / 星体 */
+        const resolveEnd = (sysId, key, fallbackName) => {
+            const sys = systemById.get(sysId);
+            const galaxyId = sys ? resolveSystemGalaxyId(sys, galaxies) : DEFAULT_GALAXY_ID;
+            const galaxy = galaxyById.get(galaxyId);
+            const info = (sys?.planets || []).find(p => p.key === key);
+            return {
+                systemId: sysId,
+                key,
+                galaxyName: galaxy?.name || (galaxyId === DEFAULT_GALAXY_ID ? '银河系' : galaxyId),
+                systemName: sys?.name || sysId,
+                bodyName: info?.name || fallbackName || key,
+                exists: !!sys,
+            };
+        };
+
+        wrap.innerHTML = [
+            this._relationGroupHtml(
+                '主动关联', '本星体 → 其它星体', false,
+                active.map(r => resolveEnd(r.toSystemId, r.toKey, r.toName)),
+            ),
+            this._relationGroupHtml(
+                '被动关联', '其它星体 → 本星体', true,
+                passive.map(r => resolveEnd(r.fromSystemId, r.fromKey, r.fromName)),
+            ),
+        ].join('');
+
+        wrap.querySelectorAll('.dr-body-link').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const systemId2 = btn.dataset.drSystem;
+                const key2 = btn.dataset.drKey;
+                if (!systemId2 || !key2) return;
+                this._relationContext?.navigateToBody?.(systemId2, key2);
+            });
+        });
+    }
+
+    _relationGroupHtml(title, note, passive, items) {
+        const rows = items.length
+            ? items.map(it => {
+                const name = this._escapeHtml(it.bodyName);
+                const bodyHtml = it.exists
+                    ? `<button class="dr-body-link"
+                               data-dr-system="${this._escapeAttr(it.systemId)}"
+                               data-dr-key="${this._escapeAttr(it.key)}"
+                               title="跳转到 ${this._escapeAttr(it.systemName)} · ${this._escapeAttr(it.bodyName)}">${name}<span class="dr-go">↗</span></button>`
+                    : `<span class="dr-body-name" title="该星体所在的星体系统已被删除">${name}</span>`;
+                return `
+                    <div class="dr-item">
+                        <span class="dr-path">
+                            <span class="dr-galaxy">${this._escapeHtml(it.galaxyName)}</span>
+                            <span class="dr-sep">/</span>
+                            <span class="dr-system">${this._escapeHtml(it.systemName)}</span>
+                            <span class="dr-sep">/</span>
+                            ${bodyHtml}
+                        </span>
+                        ${it.exists ? '' : '<span class="dr-missing">系统已不存在</span>'}
+                    </div>
+                `;
+            }).join('')
+            : `<div class="dr-empty">${passive ? '暂无被动关联' : '暂无主动关联'}</div>`;
+
+        return `
+            <div class="dr-group ${passive ? 'is-passive' : 'is-active'}">
+                <div class="dr-title">
+                    <span>${title}</span>
+                    <small>${note}</small>
+                    <span class="dr-count">${items.length} 条</span>
+                </div>
+                <div class="dr-list">${rows}</div>
+            </div>
+        `;
+    }
+
+    // ---------- 文件夹式详情 ----------
+
+    /**
+     * 渲染详情文件夹树（恒星/行星/卫星通用）
+     * 旧数据只有纯文本 details 时，自动包装为“详情/简介.txt”
+     */
+    _buildDetailTreeSection(info, fallbackDetails) {
+        const tree = (Array.isArray(info?.detailTree) && info.detailTree.length)
+            ? info.detailTree
+            : legacyDetailsToTree(fallbackDetails);
+        if (!tree || tree.length === 0) {
+            return '<p class="detail-empty">暂无详细信息</p>';
+        }
+        const nodes = [];
+        const filesHTML = tree.map(node => this._buildDetailNode(node, 1, nodes)).join('');
+        this._detailNodes = nodes;
+        return `
+            <div class="detail-tree">
+                <div class="detail-tree-files">${filesHTML}</div>
+                <div class="detail-file-viewer">
+                    <div class="dfv-placeholder">点击左侧 .txt 或图片文件查看内容</div>
+                </div>
+            </div>
+        `;
+    }
+
+    _buildDetailNode(node, level, nodes) {
+        if (!node || !node.type) return '';
+        const id = nodes.length;
+        nodes.push(node);
+        const name = this._escapeHtml(node.name || '未命名');
+        const pad = 6 + (level - 1) * 16;
+
+        if (node.type === 'folder') {
+            const open = level === 1;
+            const children = Array.isArray(node.children) ? node.children : [];
+            return `
+                <div class="dt-node">
+                    <div class="dt-row dt-folder" data-dt-id="${id}" data-dt-kind="folder" style="padding-left:${pad}px">
+                        <span class="dt-arrow">${open ? '▾' : '▸'}</span>
+                        <span class="dt-icon">${open ? '📂' : '📁'}</span>
+                        <span class="dt-name">${name}</span>
+                    </div>
+                    <div class="dt-children"${open ? '' : ' style="display:none"'}>
+                        ${children.map(c => this._buildDetailNode(c, level + 1, nodes)).join('')}
+                    </div>
+                </div>
+            `;
+        }
+
+        const isImage = node.type === 'image';
+        return `
+            <div class="dt-node">
+                <div class="dt-row dt-file" data-dt-id="${id}" data-dt-kind="file" style="padding-left:${pad}px">
+                    <span class="dt-arrow"></span>
+                    <span class="dt-icon">${isImage ? '🖼' : '📄'}</span>
+                    <span class="dt-name">${name}</span>
+                </div>
+            </div>
+        `;
+    }
+
+    _bindDetailTree() {
+        const root = this.modalBody.querySelector('.detail-tree');
+        if (!root) return;
+        const viewer = root.querySelector('.detail-file-viewer');
+
+        root.querySelectorAll('.dt-row').forEach(row => {
+            row.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (row.dataset.dtKind === 'folder') {
+                    const wrap = row.closest('.dt-node');
+                    const children = wrap?.querySelector('.dt-children');
+                    if (!children) return;
+                    const isOpen = children.style.display !== 'none';
+                    children.style.display = isOpen ? 'none' : '';
+                    row.querySelector('.dt-arrow').textContent = isOpen ? '▸' : '▾';
+                    row.querySelector('.dt-icon').textContent = isOpen ? '📁' : '📂';
+                    return;
+                }
+                const node = this._detailNodes?.[Number(row.dataset.dtId)];
+                if (node) this._showDetailFile(viewer, node);
+                root.querySelectorAll('.dt-row.active').forEach(r => r.classList.remove('active'));
+                row.classList.add('active');
+            });
+        });
+    }
+
+    async _showDetailFile(viewer, node) {
+        if (!viewer) return;
+        if (node.type === 'image') {
+            if (!node.url) {
+                viewer.innerHTML = '<div class="dfv-placeholder">图片不可用</div>';
+                return;
+            }
+            viewer.innerHTML = `<div class="dfv-title">🖼 ${this._escapeHtml(node.name)}</div>` +
+                `<img class="dfv-image" src="${this._escapeAttr(node.url)}" alt="${this._escapeAttr(node.name)}">`;
+            return;
+        }
+
+        viewer.innerHTML = '<div class="dfv-placeholder">加载中…</div>';
+        let content = node.content;
+        if (content === undefined) content = this._detailContentCache.get(node);
+        if (content === undefined) {
+            try {
+                if (node.url) {
+                    const resp = await fetch(node.url);
+                    content = resp.ok ? await resp.text() : '';
+                } else {
+                    content = '';
+                }
+            } catch {
+                content = '';
+            }
+            this._detailContentCache.set(node, content);
+        }
+        // 用户可能已经点了别的文件
+        if (!viewer.isConnected) return;
+        viewer.innerHTML = `<div class="dfv-title">📄 ${this._escapeHtml(node.name)}</div>` +
+            `<pre class="dfv-text">${this._escapeHtml(content || '（空文件）')}</pre>`;
+    }
+
+    _escapeHtml(str) {
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    _escapeAttr(str) {
+        return this._escapeHtml(str).replace(/`/g, '&#96;');
     }
 }

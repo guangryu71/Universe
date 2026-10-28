@@ -4,7 +4,7 @@
 // ============================================================
 import * as THREE from 'three';
 import { SYSTEM_SCALE } from './constants.js';
-import { getGalaxyById } from './galaxyRegistry.js';
+import { getGalaxyById } from './galaxyRegistry.js?v=8';
 
 export class FocusController {
     /**
@@ -97,11 +97,16 @@ export class FocusController {
 
     /** 解除聚焦，恢复 OrbitControls */
     dismiss() {
+        // OrbitControls 的 target 必须落在星球“当前”位置：聚焦期间星球一直在运动，
+        // 若沿用聚焦瞬间的位置，恢复后相机会围绕很远处的空点旋转/平移，视角会突然失控。
+        const mesh = this._focusBody?.mesh;
+        if (mesh) this.controls.target.copy(mesh.position);
         this._focusBody = null;
         this._focusOffset = null;
         this._trackDebug = null;
         this.controls.enabled = true;
         this._midDrag = false;
+        this.controls.update();
     }
 
     /** 每帧更新：追踪聚焦星球 */
@@ -113,6 +118,9 @@ export class FocusController {
         cam.position.copy(meshPos).add(this._focusOffset);
         const fwd = new THREE.Vector3().copy(this._focusOffset).negate().normalize();
         cam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), fwd);
+
+        // 持续同步 OrbitControls 目标点，解除聚焦后可以直接接着旋转 / 缩放
+        this.controls.target.copy(meshPos);
     }
 
     get isFocused() { return !!this._focusBody; }

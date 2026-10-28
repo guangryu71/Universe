@@ -7,7 +7,7 @@
 import * as THREE from 'three';
 import { screenToNDC } from '../js/utils.js';
 import { PlacementHUD } from './PlacementHUD.js';
-import { PlacementGuides } from './PlacementGuides.js';
+import { PlacementGuides } from './PlacementGuides.js?v=2';
 
 /**
  * @callback onPlaced  - (x, y, z, vDir: THREE.Vector3)  全部放置完成时回调

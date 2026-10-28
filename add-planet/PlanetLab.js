@@ -5,16 +5,29 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { PhysicsEngine } from '../js/physics.js';
-import { formatMass } from '../js/constants.js';
-import { BodyEditor } from './BodyEditor.js';
+import { formatMass, POS_SCALE, AU } from '../js/constants.js';
+import { BodyEditor } from './BodyEditor.js?v=2';
+import { CelestialBody } from '../js/CelestialBody.js';
+import { getAllGalaxies } from '../js/galaxyRegistry.js?v=8';
+import { getCurrentUser, refreshSession, escapeHtml } from '../js/session.js?v=1';
+import { loadUniverseGalaxies, resolveSystemGalaxyId } from '../js/UniverseRegistry.js?v=7';
+import { LabAI } from './LabAI.js?v=3';
+import { InfiniteGrid } from './InfiniteGrid.js?v=1';
 
 export class PlanetLab {
-    constructor() {
+    /**
+     * @param {object} [deps]
+     * @param {function} [deps.onExportSystem] — 把实验室里的星体系统写入星体数据库
+     */
+    constructor(deps = {}) {
+        this._onExportSystem = deps.onExportSystem || null;
+        this._onRequireLogin = deps.onRequireLogin || (() => {});
         this._bodies = [];
         this._collisionBoxes = [];
         this._selectedBody = null;
         this._isOpen = false;
-        this._showTrails = false;       // 轨迹线显隐
+        this._rafId = 0;                // 渲染循环句柄（关闭时取消，重开时重启）
+        this._showTrails = true;        // 轨迹线显隐（默认开启，与按钮高亮一致）
         this._trailLines = [];          // { body, line, points[] }
 
         this._buildDOM();
@@ -30,11 +43,16 @@ export class PlanetLab {
             <div class="pl-backdrop"></div>
             <div class="pl-main">
                 <div class="pl-header">
-                    <span>🔬 星球实验室</span>
+                    <div class="pl-header-left">
+                        <button id="pl-add-btn" class="pl-header-btn" title="添加一颗新星球">➕ 添加星球</button>
+                        <button id="pl-import-btn" class="pl-header-btn" title="从星体数据库复制一个星体系统到实验室">📥 导入星体系统</button>
+                        <button id="pl-export-btn" class="pl-header-btn" title="把实验室中的星体系统导出到星体数据库">📤 导出到星体数据库</button>
+                    </div>
                     <div class="pl-header-actions">
+                        <button id="pl-ai-btn" class="pl-header-btn" title="用 AI 自动搭建星体系统">AI 建造</button>
                         <button id="pl-clear-trails" class="pl-header-btn" title="擦除所有轨迹线">🗑 擦除</button>
                         <button id="pl-toggle-trails" class="pl-header-btn" title="显示/隐藏轨迹线">〰 轨迹</button>
-                        <button id="pl-toggle-collision" class="pl-header-btn" title="切换碰撞箱">📦 碰撞箱</button>
+                        <button id="pl-toggle-collision" class="pl-header-btn" title="显示碰撞箱并启用刚性碰撞">📦 碰撞箱</button>
                         <button id="pl-close" class="pl-close-btn">&times;</button>
                     </div>
                 </div>
@@ -56,25 +74,24 @@ export class PlanetLab {
                 <div class="pl-sidebar" id="pl-sidebar">
                     <div class="pl-sidebar-title" id="pl-sidebar-title" style="cursor:pointer;">🪐 星球管理 ▾</div>
                     <div class="pl-body-list" id="pl-body-list">
-                        <div class="pl-empty">暂无星球，点击下方按钮添加</div>
+                        <div class="pl-empty">暂无星球，点击左上角「添加星球」</div>
                     </div>
-                    <button id="pl-add-btn" class="pl-action-btn pl-add" style="width:100%;margin-top:8px;">➕ 添加星球</button>
                     <!-- 内嵌 abp 表单（添加星球时展开） -->
                     <div class="pl-abp-inline hidden" id="pl-abp-inline">
                         <div class="abp-row"><label>名称</label><input id="pl-abp-name" value="新星体" /></div>
                         <div class="abp-row"><label>质量 (kg)</label><input id="pl-abp-mass" type="number" value="1e24" step="any" /></div>
-                        <div class="abp-row"><label>半径 (m)</label><input id="pl-abp-radius" type="number" value="6371000" step="any" /></div>
+                        <div class="abp-row"><label>半径 (km)</label><input id="pl-abp-radius" type="number" value="6371" step="any" /></div>
                         <div class="abp-row"><label>颜色</label><input id="pl-abp-color" type="color" value="#ff8844" /></div>
                         <div class="abp-row"><label>位置</label><span id="pl-abp-pos" style="font-size:10px;color:#0f8;">等待放置...</span></div>
                         <div class="abp-row hidden" id="pl-abp-vel-section">
-                            <label>初速度</label>
+                            <label>初速度 (km/s)</label>
                             <span id="pl-abp-vel-info" style="font-size:10px;color:#fc0;">未设置</span>
                             <div style="display:flex;gap:4px;margin-top:4px;">
-                                <input id="pl-abp-vel-speed" type="number" value="0" min="0" step="100" placeholder="m/s" style="flex:1;width:60px;">
+                                <input id="pl-abp-vel-speed" type="number" value="0" min="0" step="0.1" placeholder="km/s" style="flex:1;width:60px;">
                                 <button id="pl-abp-vel-btn" class="abp-btn" style="width:60px;font-size:11px;padding:2px 4px;">🎯 方向</button>
                             </div>
                         </div>
-                        <button class="abp-btn" id="pl-abp-confirm" disabled>📍 先点击场景放置位置</button>
+                        <button class="abp-btn" id="pl-abp-confirm" disabled style="display:none;">🚀 确认发射入轨</button>
                     </div>
                 </div>
 
@@ -99,6 +116,44 @@ export class PlanetLab {
                     </div>
                 </div>
             </div>
+
+            <!-- 从星体数据库导入 -->
+            <div class="pl-modal hidden" id="pl-import-modal">
+                <div class="pl-modal-backdrop"></div>
+                <div class="pl-modal-panel">
+                    <div class="pl-modal-header">
+                        <span>📥 从星体数据库导入</span>
+                        <button id="pl-import-modal-close">&times;</button>
+                    </div>
+                    <div class="pl-modal-body">
+                        <input type="search" id="pl-import-search" class="pl-import-search"
+                               placeholder="🔍 搜索星体系统 / 星系名称…" autocomplete="off" />
+                        <div class="pl-import-list" id="pl-import-list"></div>
+                    </div>
+                    <div class="pl-modal-footer">
+                        <button id="pl-import-cancel" class="pl-action-btn pl-cancel">取消</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 导出到星体数据库（保存为草稿） -->
+            <div class="pl-modal hidden" id="pl-export-modal">
+                <div class="pl-modal-backdrop"></div>
+                <div class="pl-modal-panel">
+                    <div class="pl-modal-header">
+                        <span>📤 导出星体系统</span>
+                        <button id="pl-export-modal-close">&times;</button>
+                    </div>
+                    <div class="pl-modal-body">
+                        <p class="pl-export-hint">选择要保存到的星系。导出的系统会存入<b>草稿箱</b>，仅自己可见，可在个人中心「我的系统」中完成发布。</p>
+                        <div class="pl-export-list" id="pl-export-list"></div>
+                    </div>
+                    <div class="pl-modal-footer">
+                        <button id="pl-export-save" class="pl-action-btn pl-save" disabled>💾 保存至草稿箱</button>
+                        <button id="pl-export-cancel" class="pl-action-btn pl-cancel">取消</button>
+                    </div>
+                </div>
+            </div>
         `;
         document.body.appendChild(this.overlay);
 
@@ -107,8 +162,23 @@ export class PlanetLab {
         this.canvasWrap    = this.overlay.querySelector('#pl-canvas-wrap');
         this.abpInline     = this.overlay.querySelector('#pl-abp-inline');
         this.editModal     = this.overlay.querySelector('#pl-edit-modal');
+        this.importModal   = this.overlay.querySelector('#pl-import-modal');
+        this.importListEl  = this.overlay.querySelector('#pl-import-list');
+        this.importSearchEl = this.overlay.querySelector('#pl-import-search');
+        this.exportModal   = this.overlay.querySelector('#pl-export-modal');
+        this.exportListEl  = this.overlay.querySelector('#pl-export-list');
+        this.exportSaveBtn = this.overlay.querySelector('#pl-export-save');
+        this._exportGalaxyId = '';
         this.collisionBtn  = this.overlay.querySelector('#pl-toggle-collision');
         this._showCollision = true;
+
+        // 顶栏在窄窗口下会换行变高，右侧星体面板必须始终贴在其下方
+        const header = this.overlay.querySelector('.pl-header');
+        this._syncHeaderHeight = () => {
+            this.overlay.style.setProperty('--pl-header-h', `${header.offsetHeight}px`);
+        };
+        this._syncHeaderHeight();
+        new ResizeObserver(this._syncHeaderHeight).observe(header);
     }
 
     // ==================== 事件绑定 ====================
@@ -116,18 +186,18 @@ export class PlanetLab {
         this.overlay.querySelector('#pl-close').addEventListener('click', () => this.close());
         this.overlay.querySelector('.pl-backdrop').addEventListener('click', () => this.close());
 
+        // AI 建造（右上角，擦除按钮左侧）
+        this.labAI = new LabAI(this);
+        this.overlay.querySelector('#pl-ai-btn').addEventListener('click', () => this.labAI.open());
+
         // 添加按钮 → 展开内联表单 → 进入放置模式
         this.overlay.querySelector('#pl-add-btn').addEventListener('click', () => {
             this._resetForm();
             this.abpInline.classList.remove('hidden');
             if (this.bodyEditor) {
                 this.bodyEditor.enterPlaceMode();
-                // 隐藏 PlacementGuides 自带的网格和坐标轴（实验室已有大网格）
-                const g = this.bodyEditor.placementCtrl.guides;
-                if (g) {
-                    if (g._gridHelper) g._gridHelper.visible = false;
-                    if (g._axesHelper) g._axesHelper.visible = false;
-                }
+                // 移除 PlacementGuides 自带的有限网格与坐标轴（实验室使用无限网格）
+                this.bodyEditor.placementCtrl.guides?.disableGrid();
                 this.canvasWrap.style.cursor = 'crosshair';
             }
         });
@@ -136,6 +206,18 @@ export class PlanetLab {
         this.overlay.querySelector('#pl-edit-modal-close').addEventListener('click', () => this.editModal.classList.add('hidden'));
         this.overlay.querySelector('#pl-edit-cancel').addEventListener('click', () => this.editModal.classList.add('hidden'));
         this.overlay.querySelector('#pl-edit-save').addEventListener('click', () => this._saveEdit());
+
+        // 导入 / 导出星体系统（左上角）
+        this.overlay.querySelector('#pl-import-btn').addEventListener('click', () => this._openImportModal());
+        this.overlay.querySelector('#pl-export-btn').addEventListener('click', () => this._openExportModal());
+        this.overlay.querySelector('#pl-import-modal-close').addEventListener('click', () => this.importModal.classList.add('hidden'));
+        this.overlay.querySelector('#pl-import-cancel').addEventListener('click', () => this.importModal.classList.add('hidden'));
+        this.importModal.querySelector('.pl-modal-backdrop').addEventListener('click', () => this.importModal.classList.add('hidden'));
+        this.importSearchEl?.addEventListener('input', () => this._filterImportList());
+        this.overlay.querySelector('#pl-export-modal-close').addEventListener('click', () => this.exportModal.classList.add('hidden'));
+        this.overlay.querySelector('#pl-export-cancel').addEventListener('click', () => this.exportModal.classList.add('hidden'));
+        this.exportModal.querySelector('.pl-modal-backdrop').addEventListener('click', () => this.exportModal.classList.add('hidden'));
+        this.exportSaveBtn?.addEventListener('click', () => this._saveDraftToGalaxy());
 
         // 碰撞箱切换
         this.collisionBtn.addEventListener('click', () => {
@@ -174,6 +256,10 @@ export class PlanetLab {
                 if (this.abpInline && !this.abpInline.classList.contains('hidden')) {
                     this.abpInline.classList.add('hidden');
                     if (this.bodyEditor) this.bodyEditor.exitPlaceMode();
+                } else if (this.importModal && !this.importModal.classList.contains('hidden')) {
+                    this.importModal.classList.add('hidden');
+                } else if (this.exportModal && !this.exportModal.classList.contains('hidden')) {
+                    this.exportModal.classList.add('hidden');
                 } else if (!this.editModal.classList.contains('hidden')) {
                     this.editModal.classList.add('hidden');
                 } else {
@@ -188,18 +274,18 @@ export class PlanetLab {
         const q = (sel) => this.overlay.querySelector(sel);
         q('#pl-abp-name').value = '新星体';
         q('#pl-abp-mass').value = '1e24';
-        q('#pl-abp-radius').value = '6371000';
+        q('#pl-abp-radius').value = '6371';
         q('#pl-abp-color').value = '#ff8844';
         q('#pl-abp-pos').textContent = '等待放置...';
         q('#pl-abp-vel-section').classList.add('hidden');
         q('#pl-abp-vel-info').textContent = '未设置';
         const btn = q('#pl-abp-confirm');
         btn.disabled = true;
-        btn.textContent = '📍 先点击场景放置位置';
-        // 预览球大小 = 默认半径 * 实验室视觉缩放
-        const LAB_VIS_SCALE = 1e-6;
-        const defaultR = 6371000;
-        const defaultVisualR = Math.max(defaultR * LAB_VIS_SCALE, 0.1);
+        btn.textContent = '🚀 确认发射入轨';
+        btn.style.display = 'none';
+        // 预览球大小 = 默认半径(km) * 实验室视觉缩放
+        const defaultRKm = 6371;
+        const defaultVisualR = Math.max(defaultRKm * 1e-3, 0.1);
         this._previewSize = defaultVisualR * 20; // SYSTEM_SCALE
         if (this.previewSphere) this.previewSphere.scale.setScalar(this._previewSize);
         // 同步 ghostStar（如果放置引导已激活）
@@ -227,8 +313,11 @@ export class PlanetLab {
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
         this.controls.dampingFactor = 0.08;
-        this.controls.minDistance = 1;
+        // 保留一点最小距离，避免缩放退化到目标点后旋转与平移全部失灵
+        this.controls.minDistance = 0.5;
         this.controls.maxDistance = 15000;
+        this.controls.zoomSpeed = 1.2;
+        this.controls.zoomToCursor = true;
         this.controls.target.set(0, 0, 0);
         this.controls.mouseButtons = {
             LEFT: THREE.MOUSE.PAN,
@@ -241,16 +330,13 @@ export class PlanetLab {
         pt.position.set(0, 5, 0);
         this._scene.add(pt);
 
-        const grid = new THREE.GridHelper(10000, 200, 0x334455, 0x222233);
-        this._scene.add(grid);
+        // 无限三维参考网格（取代有限的 GridHelper / 坐标轴）
+        this._grid = new InfiniteGrid();
+        this._scene.add(this._grid.group);
 
         const dotGeo = new THREE.SphereGeometry(2, 12, 12);
         const dotMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
         this._scene.add(new THREE.Mesh(dotGeo, dotMat));
-
-        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(80,0,0), 0xff4444);
-        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(0,80,0), 0x44ff44);
-        this._addAxisLine(new THREE.Vector3(0,0,0), new THREE.Vector3(0,0,80), 0x4488ff);
 
         // 预览球（显示放置位置，大小由半径 * 实验室视觉缩放 决定）
         const LAB_VIS_SCALE = 1e-6;
@@ -266,6 +352,8 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
 
         // 物理引擎
         this.physics = new PhysicsEngine([]);
+        // 每个物理子步后做碰撞检测，避免高速下直接穿过对方
+        this.physics.onSubstep = () => this._resolveCollisions();
 
         // 实验室私有的 planets dict（供 BodyEditor 存放天体）
         this._labPlanets = {};
@@ -299,13 +387,6 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
         // 视角平面 + 时间控制
         this._setupViewPlaneButtons();
         this._setupTimeControl();
-        this._animate();
-    }
-
-    _addAxisLine(from, to, color) {
-        const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
-        const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5 }));
-        this._scene.add(line);
     }
 
     // ==================== 视角平面切换 ====================
@@ -375,6 +456,7 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
                 if (confirmBtn) {
                     confirmBtn.disabled = false;
                     confirmBtn.textContent = '🚀 确认发射入轨';
+                    confirmBtn.style.display = '';
                 }
                 const velSection = panel.querySelector('#pl-abp-vel-section');
                 if (velSection) velSection.classList.remove('hidden');
@@ -385,11 +467,534 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
                 const vel = self.bodyEditor.getVelocity();
                 const mag = vel.length();
                 const velInfo = panel.querySelector('#pl-abp-vel-info');
-                if (velInfo) velInfo.textContent = `方向已设定 | 大小: ${mag.toFixed(1)} m/s`;
+                if (velInfo) velInfo.textContent = `方向已设定 | 大小: ${(mag / 1000).toFixed(2)} km/s`;
             },
             _switchToTab: () => {},
             _refreshBodyList: () => self._refreshList(),
         };
+    }
+
+    // ==================== 导入 / 导出星体系统 ====================
+
+    /** 打开“导入星体系统”弹窗：支持按星体系统 / 所属星系搜索 */
+    async _openImportModal() {
+        this.importModal.classList.remove('hidden');
+        if (this.importSearchEl) this.importSearchEl.value = '';
+        this.importListEl.innerHTML = '<div class="pl-import-empty">正在读取星体数据库…</div>';
+
+        // 星系列表用来标注每个星体系统的所属星系
+        let galaxies = [];
+        try {
+            galaxies = await loadUniverseGalaxies();
+        } catch (e) {
+            galaxies = [];
+        }
+        // 草稿仅本人可见、也不在星体数据库中展示，因此不进入导入列表
+        const systems = getAllGalaxies().filter(g => (g.status || 'approved') !== 'draft');
+        if (!this.importModal || this.importModal.classList.contains('hidden')) return;
+
+        if (systems.length === 0) {
+            this.importListEl.innerHTML = '<div class="pl-import-empty">星体数据库中还没有星体系统</div>';
+            return;
+        }
+
+        const galaxyById = new Map(galaxies.map(x => [x.id, x]));
+        this.importListEl.innerHTML = systems.map((g, i) => {
+            const infos = g.planets || [];
+            const planetCount = infos.filter(p => !p.isStar).length;
+            const hasStar = infos.some(p => p.isStar);
+            const meta = infos.length === 0
+                ? '无星体数据'
+                : (hasStar ? `恒星 1 · 行星 ${planetCount}` : `星体 ${infos.length}`);
+            const galaxy = galaxyById.get(resolveSystemGalaxyId(g, galaxies));
+            const galaxyName = galaxy?.name || '银河系';
+            const search = [
+                g.name || '', g.nameCN || '', g.description || '',
+                galaxyName, galaxy?.nameCN || '',
+            ].join(' ').toLowerCase();
+            return `<div class="pl-import-item${infos.length ? '' : ' is-disabled'}"
+                         data-idx="${i}" data-search="${escapeHtml(search)}">
+                <span class="pl-import-item-icon">${g.icon || '🌟'}</span>
+                <div class="pl-import-item-info">
+                    <span class="pl-import-item-name">${escapeHtml(g.nameCN || g.name)}</span>
+                    <span class="pl-import-item-meta">${meta}</span>
+                    <span class="pl-import-item-galaxy">🛰 所属星系：${escapeHtml(galaxyName)}</span>
+                </div>
+            </div>`;
+        }).join('') + '<div class="pl-import-empty hidden" id="pl-import-empty">没有匹配的星体系统</div>';
+
+        this.importListEl.querySelectorAll('.pl-import-item').forEach(item => {
+            item.addEventListener('click', () => {
+                if (item.classList.contains('is-disabled')) return;
+                const galaxy = systems[parseInt(item.dataset.idx)];
+                if (!galaxy?.planets?.length) {
+                    alert('该系统暂时没有可导入的星体数据');
+                    return;
+                }
+                if (this._bodies.length > 0 &&
+                    !confirm(`导入会清空实验室中现有的 ${this._bodies.length} 个星体，确定继续吗？`)) {
+                    return;
+                }
+                this.importModal.classList.add('hidden');
+                this._importSystem(galaxy);
+            });
+        });
+    }
+
+    /** 导入弹窗的即时搜索（按星体系统名 / 星系名过滤） */
+    _filterImportList() {
+        const q = String(this.importSearchEl?.value || '').trim().toLowerCase();
+        let visible = 0;
+        this.importListEl.querySelectorAll('.pl-import-item').forEach((item) => {
+            const show = !q || (item.dataset.search || '').includes(q);
+            item.classList.toggle('hidden', !show);
+            if (show) visible++;
+        });
+        this.importListEl.querySelector('#pl-import-empty')?.classList.toggle('hidden', !(q && visible === 0));
+    }
+
+    /** 把星体数据库里的一个系统复制到实验室（属性不变） */
+    _importSystem(galaxy) {
+        this._initScene();
+        // 退出可能正在进行的放置流程，避免导入后引导球残留
+        if (this.bodyEditor) this.bodyEditor.exitPlaceMode();
+        if (this.abpInline) this.abpInline.classList.add('hidden');
+        if (this.previewSphere) this.previewSphere.visible = false;
+        this._clearLab();
+
+        const infos = (galaxy.planets || []).filter(Boolean);
+        const starInfo = infos.find(p => p.isStar) || infos[0];
+        if (!starInfo) {
+            alert('该系统没有可导入的星体');
+            return;
+        }
+        const planetInfos = infos.filter(p => p !== starInfo);
+        const starMass = starInfo.mass || 1e30;
+        const baseKey = 'lab_import_' + Date.now();
+
+        // --- 中心恒星：统一放在实验室原点（属性保持原样） ---
+        const starBody = new CelestialBody({
+            key: baseKey + '_star',
+            name: starInfo.name || galaxy.name || '中心恒星',
+            nameCN: starInfo.nameCN || starInfo.name || galaxy.name || '中心恒星',
+            mass: starMass,
+            radius: starInfo.radius || 1e9,
+            orbitRadius: 0,
+            visualRadius: starInfo.visualRadius || 5,
+            color: starInfo.color || '#ffcc00',
+            details: starInfo.details || '',
+            detailTree: starInfo.detailTree || null,
+            surfaceTree: starInfo.surfaceTree || null,
+            voiceIntro: starInfo.voiceIntro || '',
+            texturePath: this._labTexturePath(starInfo.texturePath),
+            scene: this._scene,
+        });
+        starBody.textureName = starInfo.textureName || null;
+        starBody.position.set(0, 0, 0);
+        starBody.velocity.set(0, 0, 0);
+        starBody._syncMeshPosition();
+
+        // 与星体数据库中的恒星一样：自发光 + 点光源
+        const starMat = starBody.mesh?.material;
+        if (starMat) {
+            starMat.emissive = starBody.color.clone();
+            starMat.emissiveIntensity = 0.8;
+            starMat.needsUpdate = true;
+        }
+        if (starBody.mesh) {
+            starBody.mesh.add(new THREE.PointLight(starBody.color.clone(), 12.0, 0, 1.5));
+        }
+        this._registerImportedBody(starBody);
+
+        // --- 行星：保留原轨道半径，重新给绕恒星的圆轨道初速度 ---
+        planetInfos.forEach((p, i) => {
+            const orbitR = Math.max(p.orbitRadius || 0, 1);
+            const body = new CelestialBody({
+                key: baseKey + '_planet_' + i,
+                name: p.name || `行星 ${i + 1}`,
+                nameCN: p.nameCN || p.name || `行星 ${i + 1}`,
+                mass: p.mass || 1e24,
+                radius: p.radius || 1e6,
+                orbitRadius: orbitR,
+                visualRadius: p.visualRadius || 1,
+                color: p.color || '#ff8844',
+                details: p.details || '',
+                detailTree: p.detailTree || null,
+                surfaceTree: p.surfaceTree || null,
+                voiceIntro: p.voiceIntro || '',
+                texturePath: this._labTexturePath(p.texturePath),
+                scene: this._scene,
+            });
+            body.textureName = p.textureName || null;
+            // 实验室不渲染卫星，但保留数据，导出时原样带回星体数据库
+            body._sourceMoons = Array.isArray(p.moons) ? p.moons : [];
+            body.position.set(orbitR, 0, 0);
+            body.setCircularOrbitVelocity(starMass);
+            body._syncMeshPosition();
+            this._registerImportedBody(body);
+        });
+
+        this._refreshList();
+        this._fitCameraToBodies();
+        console.log(`[PlanetLab] 已从星体数据库导入: ${galaxy.name}（${infos.length} 个星体）`);
+    }
+
+    /** 导入的天体：登记到实验室 + 物理引擎 + 碰撞箱/轨迹 + BodyEditor 记录 */
+    _registerImportedBody(body) {
+        this._labPlanets[body.key] = body;
+        this.physics.addBody(body);
+        if (!this._bodies.includes(body)) this._bodies.push(body);
+        this._origAddCollisionBox(body);
+        if (this.bodyEditor && Array.isArray(this.bodyEditor.customBodies)) {
+            this.bodyEditor.customBodies.push({
+                key: body.key,
+                name: body.name,
+                body,
+                mass: body.mass,
+                radius: body.realRadius,
+                visualR: body.visualRadius,
+            });
+        }
+    }
+
+    /**
+     * 按 AI 蓝图（Blueprint.computeAssembly 的结果）搭建星体系统。
+     * 所有数值均由程序计算，AI 只提供数据。
+     * @param {{name:string, description:string, mode:string, bodies:Array}} assembly
+     * @returns {{ok:boolean, reason?:string, count?:number}}
+     */
+    applyBlueprint(assembly) {
+        if (!assembly || !Array.isArray(assembly.bodies) || assembly.bodies.length === 0) {
+            return { ok: false, reason: 'empty' };
+        }
+
+        this._initScene();
+        if (this.bodyEditor) this.bodyEditor.exitPlaceMode();
+        if (this.abpInline) this.abpInline.classList.add('hidden');
+        if (this.previewSphere) this.previewSphere.visible = false;
+        this.canvasWrap.style.cursor = '';
+
+        if (Object.keys(this._labPlanets).length > 0) {
+            const ok = window.confirm('实验室中已有天体，AI 建造会清空它们。是否继续？');
+            if (!ok) return { ok: false, reason: 'cancelled' };
+        }
+
+        this._clearLab();
+
+        // 多星系统轨道紧凑，默认关闭弹珠式碰撞，避免刚建好就被碰撞箱撞散
+        this._showCollision = false;
+        this.collisionBtn?.classList.remove('active');
+        this._updateCollisionVisibility();
+
+        const baseKey = 'lab_ai_' + Date.now();
+        assembly.bodies.forEach((spec, index) => {
+            const distance = Math.hypot(spec.position.x, spec.position.z);
+            const body = new CelestialBody({
+                key: `${baseKey}_${index}`,
+                name: spec.name,
+                nameCN: spec.name,
+                mass: spec.mass,
+                radius: spec.radius,
+                orbitRadius: distance,
+                visualRadius: spec.visualRadius,
+                color: spec.color,
+                details: `AI 建造 · ${assembly.name}${assembly.description ? ' · ' + assembly.description : ''}`,
+                scene: this._scene,
+            });
+
+            body.position.set(spec.position.x, spec.position.y, spec.position.z);
+            body.velocity.set(spec.velocity.x, spec.velocity.y, spec.velocity.z);
+            body._syncMeshPosition();
+
+            // 恒星自发光 + 点光源，与「从星体数据库导入」保持一致
+            if (spec.isStar && body.mesh) {
+                const mat = body.mesh.material;
+                if (mat) {
+                    mat.emissive = body.color.clone();
+                    mat.emissiveIntensity = 0.8;
+                    mat.needsUpdate = true;
+                }
+                body.mesh.add(new THREE.PointLight(body.color.clone(), 12.0, 0, 1.5));
+            }
+
+            this._registerImportedBody(body);
+        });
+
+        this._refreshList();
+        this._fitCameraToBodies();
+        this._autoTimeScale(assembly);
+        console.log(`[PlanetLab] AI 建造完成: ${assembly.name}（${assembly.mode} / ${assembly.bodies.length} 个天体）`);
+        return { ok: true, count: assembly.bodies.length };
+    }
+
+    /**
+     * 根据系统尺度自动设置时间流速，让中等距离的轨道大约 20 秒转一圈。
+     * 避免 AI 建好的系统在默认流速下几乎静止。
+     */
+    _autoTimeScale(assembly) {
+        const distances = assembly.bodies
+            .map(b => Math.hypot(b.position.x, b.position.z))
+            .filter(r => r > 1e7)
+            .sort((a, b) => a - b);
+        if (distances.length === 0) return;
+
+        const radius = distances[Math.floor(distances.length / 2)];
+        const totalMass = assembly.bodies.reduce((sum, b) => sum + b.mass, 0);
+        const period = 2 * Math.PI * Math.sqrt((radius * radius * radius) / (6.6743e-11 * totalMass));
+        if (!Number.isFinite(period) || period <= 0) return;
+
+        // 每帧模拟 43200 * 0.1 * timeScale 秒；目标约 1200 帧（60fps 下 20 秒）
+        const timeScale = period / (43200 * 0.1 * 1200);
+        const sliderVal = Math.round(50 + 25 * Math.log10(timeScale));
+        const slider = this.overlay.querySelector('.pl-time-slider');
+        if (!slider) return;
+        slider.value = String(Math.min(100, Math.max(1, sliderVal)));
+        slider.dispatchEvent(new Event('input'));
+    }
+
+    /** 清空实验室中的所有天体（导入前调用） */
+    _clearLab() {
+        for (const body of Object.values(this._labPlanets)) {
+            this.physics.removeBody(body);
+            this._removeCollisionBox(body);
+            this._removeTrail(body);
+            // 黑洞的视觉组是单独挂在场景里的，需要一并移除
+            if (body._bhVisuals) {
+                body._bhVisuals.traverse(o => {
+                    if (o.isMesh) {
+                        o.geometry?.dispose();
+                        o.material?.dispose();
+                    }
+                });
+                this._scene.remove(body._bhVisuals);
+                body._bhVisuals = null;
+            }
+            body.dispose();
+        }
+        for (const key of Object.keys(this._labPlanets)) delete this._labPlanets[key];
+        if (this.bodyEditor && Array.isArray(this.bodyEditor.customBodies)) {
+            this.bodyEditor.customBodies.length = 0;
+        }
+        this._bodies = [];
+        this._collisionBoxes = [];
+        this._trailLines = [];
+        this._selectedBody = null;
+        this._refreshList();
+    }
+
+    /** 导入后把镜头拉到能看全整个系统的位置 */
+    _fitCameraToBodies() {
+        let extent = 0;
+        for (const body of this._bodies) {
+            if (!body.mesh) continue;
+            extent = Math.max(extent, body.mesh.position.length() + body.visualRadius * 20);
+        }
+        if (extent <= 0) return;
+
+        const dist = Math.max(extent * 2.2, 120);
+        this.controls.maxDistance = Math.max(dist * 4, 15000);
+        this.camera.far = Math.max(dist * 8, 50000);
+        this.camera.near = Math.max(0.1, extent / 1e5);
+        const dir = new THREE.Vector3(0.55, 0.45, 0.75).normalize();
+        this.controls.target.set(0, 0, 0);
+        this.camera.position.copy(dir.multiplyScalar(dist));
+        this.camera.updateProjectionMatrix();
+        this.controls.update();
+    }
+
+    // ==================== 导出到星体数据库（草稿箱） ====================
+
+    /** 打开导出弹窗：列出自己加入的星系，选择后保存为草稿 */
+    async _openExportModal() {
+        const bodies = this._bodies.filter(b => b.mesh);
+        if (bodies.length === 0) {
+            alert('实验室中还没有星体，无法导出。');
+            return;
+        }
+        if (!this._onExportSystem) {
+            alert('当前未连接星体数据库，无法导出。');
+            return;
+        }
+
+        const user = getCurrentUser();
+        if (!user) {
+            this._onRequireLogin();
+            return;
+        }
+
+        this._exportGalaxyId = '';
+        this.exportSaveBtn.disabled = true;
+        this.exportModal.classList.remove('hidden');
+        this.exportListEl.innerHTML = '<div class="pl-import-empty">正在读取你加入的星系…</div>';
+
+        // 刚加入 / 被任命为指挥官时，本地缓存的成员信息可能还是旧的
+        try { await refreshSession(true); } catch { /* 离线时沿用本地缓存 */ }
+        const current = getCurrentUser() || user;
+        const memberships = current.memberships || [];
+        // 指挥官可能不在 memberships 里（例如直接被任命），一并列出
+        const commanded = current.commandedGalaxies || [];
+        const merged = new Map();
+        for (const g of memberships) merged.set(g.id, g);
+        for (const g of commanded) merged.set(g.id, { ...(merged.get(g.id) || {}), ...g });
+        const list = [...merged.values()];
+
+        if (!this.exportModal || this.exportModal.classList.contains('hidden')) return;
+
+        if (list.length === 0) {
+            this.exportListEl.innerHTML = `
+                <div class="pl-import-empty">你还没有加入任何星系。<br />
+                    请先到宇宙视图加入一个星系，再回来导出。</div>`;
+            return;
+        }
+
+        this.exportListEl.innerHTML = list.map((g) => `
+            <div class="pl-export-item" data-id="${escapeHtml(g.id)}">
+                <span class="pl-export-item-icon">🛰</span>
+                <div class="pl-export-item-info">
+                    <span class="pl-export-item-name">${escapeHtml(g.name || g.id)}</span>
+                    ${g.nameCN ? `<span class="pl-export-item-meta">${escapeHtml(g.nameCN)}</span>` : ''}
+                </div>
+                <span class="pl-export-item-check">✓</span>
+            </div>
+        `).join('');
+
+        this.exportListEl.querySelectorAll('.pl-export-item').forEach((item) => {
+            item.addEventListener('click', () => this._selectExportGalaxy(item));
+        });
+
+        // 默认选中第一个星系，减少一次点击
+        const first = this.exportListEl.querySelector('.pl-export-item');
+        if (first) this._selectExportGalaxy(first);
+    }
+
+    /** 选中导出目标星系（单选） */
+    _selectExportGalaxy(item) {
+        this.exportListEl.querySelectorAll('.pl-export-item')
+            .forEach(el => el.classList.toggle('is-selected', el === item));
+        this._exportGalaxyId = item.dataset.id;
+        this.exportSaveBtn.disabled = false;
+    }
+
+    /** 把实验室里的星体系统保存到所选星系的草稿箱 */
+    async _saveDraftToGalaxy() {
+        if (!this._exportGalaxyId) {
+            alert('请先选择一个星系');
+            return;
+        }
+        const payload = this._buildExportPayload(this._generateSystemName());
+        if (!payload) return;
+
+        this.exportSaveBtn.disabled = true;
+        let result;
+        try {
+            result = await this._onExportSystem({
+                ...payload,
+                galaxyId: this._exportGalaxyId,
+                draft: true,
+            });
+        } catch (err) {
+            console.error('[PlanetLab] 导出失败:', err);
+            alert(`⚠️ 保存失败：${err?.message || '未知错误'}`);
+            this.exportSaveBtn.disabled = false;
+            return;
+        }
+        this.exportSaveBtn.disabled = false;
+
+        if (result?.ok) {
+            this.exportModal.classList.add('hidden');
+            alert(`✅ 「${payload.name}」已保存到草稿箱。\n可在个人中心 →「我的系统」中完成发布。`);
+        } else {
+            alert(`⚠️ 保存失败：${result?.error || '未知错误'}`);
+        }
+    }
+
+    /** 把实验室星体转成星体数据库记录（质量最大的天体作为中心恒星） */
+    _buildExportPayload(name) {
+        const bodies = this._bodies.filter(b => b.mesh);
+        if (bodies.length === 0) {
+            alert('实验室中还没有星体，无法导出。');
+            return null;
+        }
+
+        const starBody = bodies.reduce((a, b) => (b.mass > a.mass ? b : a));
+        const starPos = starBody.position.clone();
+        const planetBodies = bodies
+            .filter(b => b !== starBody)
+            .sort((a, b) => a.position.distanceTo(starPos) - b.position.distanceTo(starPos));
+
+        const textureOf = (b) => {
+            const p = b.texturePath;
+            return p && String(p).startsWith('data:') ? String(p) : null;
+        };
+
+        const starPayload = {
+            name: starBody.name || '中心恒星',
+            mass: starBody.mass,
+            radius: starBody.realRadius,
+            color: '#' + starBody.color.getHexString(),
+            visualRadius: starBody.visualRadius,
+            appearance: textureOf(starBody) ? 'texture' : 'color',
+            x: starPos.x / AU,
+            y: starPos.y / AU,
+            z: starPos.z / AU,
+            textureData: textureOf(starBody),
+            textureName: starBody.textureName || null,
+            details: starBody.details || '',
+            detailTree: starBody.detailTree || null,
+            surfaceTree: starBody.surfaceTree || null,
+            voiceIntro: starBody.voiceIntro || '',
+        };
+
+        const planetPayloads = planetBodies.map(b => ({
+            name: b.name || '行星',
+            mass: b.mass,
+            radius: b.realRadius,
+            orbitRadius: Math.max(
+                1,
+                Math.hypot(b.position.x - starPos.x, b.position.z - starPos.z)
+            ),
+            visualRadius: b.visualRadius,
+            color: '#' + b.color.getHexString(),
+            appearance: textureOf(b) ? 'texture' : 'color',
+            textureData: textureOf(b),
+            textureName: b.textureName || null,
+            details: b.details || '',
+            detailTree: b.detailTree || null,
+            surfaceTree: b.surfaceTree || null,
+            voiceIntro: b.voiceIntro || '',
+            moons: b._sourceMoons || [],
+        }));
+
+        return {
+            name,
+            description: `由星球实验室导出的星体系统，共 ${bodies.length} 个星体。`,
+            star: starPayload,
+            planets: planetPayloads,
+        };
+    }
+
+    /** 自动生成不重复的系统名称（带导出的日期时间） */
+    _generateSystemName() {
+        const existing = new Set();
+        for (const g of getAllGalaxies()) {
+            if (g.name) existing.add(String(g.name).trim().toLowerCase());
+            if (g.nameCN) existing.add(String(g.nameCN).trim().toLowerCase());
+        }
+        const d = new Date();
+        const pad = (n) => String(n).padStart(2, '0');
+        const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+        const base = `实验室星体系统 ${stamp}`;
+        let name = base;
+        let i = 2;
+        while (existing.has(name.toLowerCase())) name = `${base} (${i++})`;
+        return name;
+    }
+
+    /** 仅接受 data URL 贴图；相对路径与空值一律忽略 */
+    _labTexturePath(path) {
+        if (!path) return null;
+        const s = String(path);
+        return s.startsWith('data:') ? s : null;
     }
 
     // ==================== 面板按钮（与主场景一致的交互） ====================
@@ -403,7 +1008,8 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
         panel.querySelector('#pl-abp-confirm').addEventListener('click', () => {
             const name   = panel.querySelector('#pl-abp-name').value || '新星体';
             const mass   = parseFloat(panel.querySelector('#pl-abp-mass').value) || 1e24;
-            const radius = parseFloat(panel.querySelector('#pl-abp-radius').value) || 6371000;
+            const radiusKm = parseFloat(panel.querySelector('#pl-abp-radius').value) || 6371;
+            const radius = radiusKm * 1000; // km → m
             const color  = panel.querySelector('#pl-abp-color').value || '#ff8844';
             const LAB_VIS_SCALE = 1e-6; // 10^6 米 → 1 场景单位
             const visualR = Math.max(radius * LAB_VIS_SCALE, 0.1); // 最小 0.1 保证可见
@@ -427,9 +1033,8 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
 
         // 半径输入 → 同步幽灵预览球大小
         panel.querySelector('#pl-abp-radius').addEventListener('input', (e) => {
-            const r = parseFloat(e.target.value) || 6371000;
-            const LAB_VIS_SCALE = 1e-6;
-            const visualR = Math.max(r * LAB_VIS_SCALE, 0.1);
+            const rKm = parseFloat(e.target.value) || 6371;
+            const visualR = Math.max(rKm * 1e-3, 0.1);
             // 更新 ghostStar（PlacementGuides 的 wireframe 预览球）
             if (this.bodyEditor?.placementCtrl?.guides) {
                 this.bodyEditor.placementCtrl.guides.setPreviewScale(visualR / 0.6);
@@ -442,12 +1047,12 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
         });
         // 初速度方向
         panel.querySelector('#pl-abp-vel-btn').addEventListener('click', () => {
-            const speed = parseFloat(panel.querySelector('#pl-abp-vel-speed').value) || 0;
+            const speed = (parseFloat(panel.querySelector('#pl-abp-vel-speed').value) || 0) * 1000; // km/s → m/s
             this.bodyEditor.setVelocityMagnitude(speed);
-            this.bodyEditor.startVelocityPick();
+            this.bodyEditor.startVelocityPick(speed);
         });
         panel.querySelector('#pl-abp-vel-speed').addEventListener('input', (e) => {
-            this.bodyEditor.setVelocityMagnitude(parseFloat(e.target.value) || 0);
+            this.bodyEditor.setVelocityMagnitude((parseFloat(e.target.value) || 0) * 1000);
         });
 
         // 放置模式进入（点击"确认发射入轨"按钮在未放置时禁用，点击场景放置区域自动进入）
@@ -477,6 +1082,75 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
 
     _updateCollisionVisibility() {
         this._collisionBoxes.forEach(c => { c.mesh.visible = this._showCollision; });
+    }
+
+    /**
+     * 刚性球碰撞：把天体视为半径与碰撞箱一致的实心球，
+     * 相互接近时按质量加权施加完全弹性冲量（类似弹珠相撞）。
+     * 仅在“碰撞箱”开启时生效。
+     */
+    _resolveCollisions() {
+        if (!this._showCollision) return;
+        const bodies = this.physics.bodies;
+        for (let i = 0; i < bodies.length; i++) {
+            for (let j = i + 1; j < bodies.length; j++) {
+                this._resolveCollisionPair(bodies[i], bodies[j]);
+            }
+        }
+    }
+
+    _resolveCollisionPair(a, b) {
+        const BOX_FACTOR = 1.1;   // 与 _addCollisionBox 的半径系数一致
+        const RESTITUTION = 1.0;  // 1 = 完全弹性（弹珠式）
+
+        // 碰撞半径：视觉半径(场景单位) → 米
+        const rA = Math.max((a.visualRadius || 0) * BOX_FACTOR / POS_SCALE, 0);
+        const rB = Math.max((b.visualRadius || 0) * BOX_FACTOR / POS_SCALE, 0);
+        if (rA <= 0 || rB <= 0) return;
+
+        let dx = b.position.x - a.position.x;
+        let dy = b.position.y - a.position.y;
+        let dz = b.position.z - a.position.z;
+        const distSq = dx * dx + dy * dy + dz * dz;
+        const rSum = rA + rB;
+        if (distSq >= rSum * rSum) return;
+
+        const invA = a.mass > 0 ? 1 / a.mass : 0;
+        const invB = b.mass > 0 ? 1 / b.mass : 0;
+        const invSum = invA + invB;
+        if (invSum <= 0) return;
+
+        let dist = Math.sqrt(distSq);
+        let nx = 1, ny = 0, nz = 0;
+        if (dist > 1e-9) {
+            nx = dx / dist; ny = dy / dist; nz = dz / dist;
+        } else {
+            dist = 0; // 球心完全重合，任选一个方向推开
+        }
+
+        // 1) 位置修正：按质量反比把重叠的两球推开，防止持续穿模
+        const overlap = rSum - dist;
+        const corr = overlap / invSum;
+        a.position.x -= nx * corr * invA;
+        a.position.y -= ny * corr * invA;
+        a.position.z -= nz * corr * invA;
+        b.position.x += nx * corr * invB;
+        b.position.y += ny * corr * invB;
+        b.position.z += nz * corr * invB;
+
+        // 2) 速度冲量：只处理相互接近的情况
+        const vn = (b.velocity.x - a.velocity.x) * nx
+                 + (b.velocity.y - a.velocity.y) * ny
+                 + (b.velocity.z - a.velocity.z) * nz;
+        if (vn >= 0) return;
+
+        const impulse = -(1 + RESTITUTION) * vn / invSum;
+        a.velocity.x -= nx * impulse * invA;
+        a.velocity.y -= ny * impulse * invA;
+        a.velocity.z -= nz * impulse * invA;
+        b.velocity.x += nx * impulse * invB;
+        b.velocity.y += ny * impulse * invB;
+        b.velocity.z += nz * impulse * invB;
     }
 
     // ==================== 轨迹线 ====================
@@ -609,7 +1283,7 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
             if (this.sideTitle) this.sideTitle.textContent = '🪐 星球管理 ▾';
         }
         if (this._bodies.length === 0) {
-            this.bodyListEl.innerHTML = '<div class="pl-empty">暂无星球，点击下方按钮添加</div>';
+            this.bodyListEl.innerHTML = '<div class="pl-empty">暂无星球，点击左上角「添加星球」</div>';
             return;
         }
         this.bodyListEl.innerHTML = this._bodies.map((b, i) => `
@@ -649,7 +1323,7 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
     // ==================== 动画 ====================
     _animate() {
         if (!this._isOpen) return;
-        requestAnimationFrame(() => this._animate());
+        this._rafId = requestAnimationFrame(() => this._animate());
 
         this.physics.step(43200 * 0.1 * this._timeScale);
         for (const body of this.physics.bodies) {
@@ -662,6 +1336,9 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
 
         // OrbitControls 在放置模式下禁用（BodyEditor 的 PlacementController 内部控制）
         if (this.controls) this.controls.update();
+
+        // 无限网格跟随相机，保持向远处延伸
+        if (this._grid) this._grid.update(this.camera, this.controls?.target);
 
         const w = this.canvasWrap.clientWidth;
         const h = this.canvasWrap.clientHeight;
@@ -678,7 +1355,10 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
         if (this._isOpen) return;
         this._isOpen = true;
         this.overlay.classList.remove('hidden');
+        this._syncHeaderHeight?.();
         this._initScene();
+        // 首次进入由 _initScene 建好场景；再次进入时场景已存在，需要手动恢复渲染循环
+        if (!this._rafId) this._animate();
         this._wireABPButtons();
         this._refreshList();
     }
@@ -687,7 +1367,12 @@ this._previewSize = Math.max(6371000 * LAB_VIS_SCALE, 0.1); // 默认 6371km
         if (this.bodyEditor) this.bodyEditor.exitPlaceMode();
         if (this.abpInline) this.abpInline.classList.add('hidden');
         this.editModal.classList.add('hidden');
+        this.labAI?.hide();
         this._isOpen = false;
+        if (this._rafId) {
+            cancelAnimationFrame(this._rafId);
+            this._rafId = 0;
+        }
         this.overlay.classList.add('hidden');
     }
 

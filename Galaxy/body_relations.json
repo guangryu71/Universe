@@ -1,0 +1,12 @@
+[
+  {
+    "id": "new_galaxy杀杀杀:new_galaxy杀杀杀_star->new_galaxy:new_galaxy_star",
+    "fromSystemId": "new_galaxy杀杀杀",
+    "fromKey": "new_galaxy杀杀杀_star",
+    "fromName": "新恒星",
+    "toSystemId": "new_galaxy",
+    "toKey": "new_galaxy_star",
+    "toName": "新恒星",
+    "updatedAt": 1793011136060
+  }
+]

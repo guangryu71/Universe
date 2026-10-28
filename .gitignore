@@ -19,3 +19,13 @@ Thumbs.db
 
 # 音频输出
 voice_handle/robotic_voice_output.wav
+
+# 详情编译器上传的文件（用户数据，不提交）
+/detail_files/
+
+# SQLite 数据库（用户数据，不提交；由 server.py 自动创建）
+/Galaxy/universe.db
+/Galaxy/universe.db-wal
+/Galaxy/universe.db-shm
+# 自定义星系上传的贴图（属于用户数据）
+/Galaxy/custom/*/media/

@@ -40,10 +40,11 @@ export class BGMManager {
 
     // ========== 事件 ==========
     _bindEvents() {
-        if (!this.btn) return;
-        this.btn.addEventListener('click', (e) => {
+        // 主界面不再有音乐入口，播放器由「网站管理 → 背景音乐」打开；
+        // 因此按钮缺失时仍要绑定弹窗与音频事件。
+        this.btn?.addEventListener('click', (e) => {
             e.stopPropagation();
-            this._openPopup();
+            this.openPopup();
         });
         this.popupClose?.addEventListener('click', () => this._closePopup());
         this.popup?.addEventListener('click', (e) => {
@@ -68,7 +69,7 @@ export class BGMManager {
     }
 
     // ========== 加载音乐列表（扫描 music/ 目录） ==========
-    async _loadMusicList() {
+    async _loadMusicList(autoPlay = true) {
         // 从 music/index.json 加载文件列表
         try {
             const res = await fetch('music/index.json?' + Date.now());
@@ -79,7 +80,7 @@ export class BGMManager {
                     this._renderTracks();
                     this._updateBtn();
                     // 自动播放第一首
-                    if (this.playlist.length > 0) {
+                    if (autoPlay && this.playlist.length > 0) {
                         setTimeout(() => this._playIndex(0), 3000);
                     }
                     return;
@@ -119,8 +120,14 @@ export class BGMManager {
             this.currentName = name;
             this._updateBtn();
             this._renderTracks();
-        }).catch(() => {
-            // 如果文件不存在，从列表中移除
+        }).catch((err) => {
+            this.playing = false;
+            // 自动播放被浏览器拦截时保留曲目，等待用户主动点击播放
+            if (err && err.name === 'NotAllowedError') {
+                this._updateBtn();
+                return;
+            }
+            // 文件不存在 / 解码失败才从列表中移除
             this.playlist.splice(idx, 1);
             this._renderTracks();
             this._updateBtn();
@@ -146,23 +153,35 @@ export class BGMManager {
 
     _updateBtn() {
         if (!this.btn) return;
+        // 图标固定为 buttons/音乐.svg，只切换标题与播放高亮状态
         if (this.playlist.length === 0) {
-            this.btn.textContent = '🚫'; this.btn.title = '无音乐';
+            this.btn.title = '无音乐';
+            this.btn.classList.remove('is-playing');
         } else if (this.playing) {
-            this.btn.textContent = '🔊'; this.btn.title = '播放中：' + this.currentName;
+            this.btn.title = '播放中：' + this.currentName;
+            this.btn.classList.add('is-playing');
         } else {
-            this.btn.textContent = '🎵'; this.btn.title = this.playlist.length + ' 首';
+            this.btn.title = this.playlist.length + ' 首';
+            this.btn.classList.remove('is-playing');
         }
     }
 
     // ========== 弹窗 ==========
-    _openPopup() { this._renderTracks(); this.popup.classList.remove('hidden'); }
-    _closePopup() { this.popup.classList.add('hidden'); }
+    /** 打开播放器（网站管理 → 背景音乐的「🎵 打开播放器」入口） */
+    openPopup() {
+        if (!this.popup) return;
+        this._renderTracks();
+        // 需要盖在网站管理面板（z-index 1300）之上
+        this.popup.style.zIndex = '1500';
+        this.popup.classList.remove('hidden');
+        this._updateBtn();
+    }
+    _closePopup() { this.popup?.classList.add('hidden'); }
 
     _renderTracks() {
         if (!this.popupBody) return;
         if (this.playlist.length === 0) {
-            this.popupBody.innerHTML = '<div style="color:#667;font-size:12px;text-align:center;padding:20px;">🎶 暂无音乐<br><br>点击下方「上传音乐」添加</div>';
+            this.popupBody.innerHTML = '<div style="color:#667;font-size:12px;text-align:center;padding:20px;">🎶 暂无音乐<br><br>音乐由开发者统一上传</div>';
             return;
         }
         this.popupBody.innerHTML = this.playlist.map((f, i) => {
@@ -174,7 +193,6 @@ export class BGMManager {
                     <span class="music-track-play" data-idx="${i}">${icon}</span>
                     <span class="music-track-name" data-idx="${i}" title="${f}">${f}</span>
                     <button class="music-track-pause" data-idx="${i}">${isActive && this.playing ? '⏸' : '▶'}</button>
-                    <button class="music-track-del" data-idx="${i}" title="删除">🗑</button>
                 </div>`;
         }).join('');
 
@@ -190,12 +208,6 @@ export class BGMManager {
                 const idx = parseInt(el.dataset.idx);
                 if (idx === this.currentIdx) this._togglePlay();
                 else this._playIndex(idx);
-            });
-        });
-        this.popupBody.querySelectorAll('.music-track-del').forEach(el => {
-            el.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this._deleteTrack(parseInt(el.dataset.idx));
             });
         });
     }
@@ -228,6 +240,9 @@ export class BGMManager {
     }
 
     triggerUpload() { this.uploadInput.click(); }
+
+    /** 网站管理上传 / 删除音乐后刷新播放列表（不自动切歌） */
+    reloadPlaylist() { return this._loadMusicList(false); }
 
     // ========== 删除 ==========
     async _deleteTrack(idx) {

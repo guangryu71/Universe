@@ -21,6 +21,8 @@ export class CelestialBody {
      * @param {number} opts.visualRadius
      * @param {number|string} opts.color
      * @param {string} opts.details
+     * @param {Array} [opts.detailTree]  - 文件夹式详情数据
+     * @param {Array} [opts.surfaceTree] - 文件夹式地表图片数据
      * @param {string} [opts.texturePath]  - 贴图路径（相对于 index.html）
      * @param {object} opts.scene
      */
@@ -33,6 +35,8 @@ export class CelestialBody {
         this.orbitRadius = opts.orbitRadius;
         this.color = new THREE.Color(opts.color);
         this.details = opts.details || '';
+        this.detailTree = Array.isArray(opts.detailTree) ? opts.detailTree : null;
+        this.surfaceTree = Array.isArray(opts.surfaceTree) ? opts.surfaceTree : null;
         this.voiceIntro = opts.voiceIntro || '';
         this.scene = opts.scene;
         this.texturePath = opts.texturePath || null;
@@ -78,6 +82,7 @@ export class CelestialBody {
         textureLoader.load(
             this.texturePath,
             (texture) => {
+                texture.colorSpace = THREE.SRGBColorSpace;
                 mat.map = texture;
                 mat.needsUpdate = true;
             },

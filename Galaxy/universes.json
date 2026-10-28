@@ -1,0 +1,35 @@
+[
+  {
+    "id": "milky-way",
+    "name": "银河系",
+    "nameCN": "Milky Way",
+    "description": "默认星系。所有尚未指定隶属星系的星体系统都会自动归入这里。",
+    "iconSvg": "data:image/svg+xml;charset=utf-8,%0A%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20128%20128%22%3E%0A%20%20%3Cdefs%3E%0A%20%20%20%20%3CradialGradient%20id%3D%22g%22%20cx%3D%2250%25%22%20cy%3D%2250%25%22%20r%3D%2250%25%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23eafaff%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2232%25%22%20stop-color%3D%22%2366d4ff%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2272%25%22%20stop-color%3D%22%232b6fff%22%20stop-opacity%3D%220.55%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%230b1a52%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%3C%2FradialGradient%3E%0A%20%20%3C%2Fdefs%3E%0A%20%20%3Ccircle%20cx%3D%2264%22%20cy%3D%2264%22%20r%3D%2262%22%20fill%3D%22url(%23g)%22%20opacity%3D%220.85%22%2F%3E%0A%20%20%3Cellipse%20cx%3D%2264%22%20cy%3D%2264%22%20rx%3D%2254%22%20ry%3D%2217%22%20fill%3D%22none%22%20stroke%3D%22%238ee9ff%22%20stroke-width%3D%224%22%20opacity%3D%220.75%22%20transform%3D%22rotate(-24%2064%2064)%22%2F%3E%0A%20%20%3Cellipse%20cx%3D%2264%22%20cy%3D%2264%22%20rx%3D%2236%22%20ry%3D%2211%22%20fill%3D%22none%22%20stroke%3D%22%23d6f8ff%22%20stroke-width%3D%223%22%20opacity%3D%220.85%22%20transform%3D%22rotate(-24%2064%2064)%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2264%22%20cy%3D%2264%22%20r%3D%229%22%20fill%3D%22%23ffffff%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2264%22%20cy%3D%2264%22%20r%3D%2215%22%20fill%3D%22%23bfefff%22%20opacity%3D%220.35%22%2F%3E%0A%3C%2Fsvg%3E",
+    "detailTree": [],
+    "isDefault": true,
+    "createdAt": 1792997775777,
+    "updatedAt": 1792997775777
+  },
+  {
+    "id": "new_galaxy",
+    "name": "新星系",
+    "nameCN": "New Galaxy",
+    "description": "xxx",
+    "iconSvg": "data:image/svg+xml;charset=utf-8,%0A%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20128%20128%22%3E%0A%20%20%3Cdefs%3E%0A%20%20%20%20%3CradialGradient%20id%3D%22g%22%20cx%3D%2250%25%22%20cy%3D%2250%25%22%20r%3D%2250%25%22%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%220%25%22%20stop-color%3D%22%23eafaff%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2232%25%22%20stop-color%3D%22%2366d4ff%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%2272%25%22%20stop-color%3D%22%232b6fff%22%20stop-opacity%3D%220.55%22%2F%3E%0A%20%20%20%20%20%20%3Cstop%20offset%3D%22100%25%22%20stop-color%3D%22%230b1a52%22%20stop-opacity%3D%220%22%2F%3E%0A%20%20%20%20%3C%2FradialGradient%3E%0A%20%20%3C%2Fdefs%3E%0A%20%20%3Ccircle%20cx%3D%2264%22%20cy%3D%2264%22%20r%3D%2262%22%20fill%3D%22url(%23g)%22%20opacity%3D%220.85%22%2F%3E%0A%20%20%3Cellipse%20cx%3D%2264%22%20cy%3D%2264%22%20rx%3D%2254%22%20ry%3D%2217%22%20fill%3D%22none%22%20stroke%3D%22%238ee9ff%22%20stroke-width%3D%224%22%20opacity%3D%220.75%22%20transform%3D%22rotate(-24%2064%2064)%22%2F%3E%0A%20%20%3Cellipse%20cx%3D%2264%22%20cy%3D%2264%22%20rx%3D%2236%22%20ry%3D%2211%22%20fill%3D%22none%22%20stroke%3D%22%23d6f8ff%22%20stroke-width%3D%223%22%20opacity%3D%220.85%22%20transform%3D%22rotate(-24%2064%2064)%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2264%22%20cy%3D%2264%22%20r%3D%229%22%20fill%3D%22%23ffffff%22%2F%3E%0A%20%20%3Ccircle%20cx%3D%2264%22%20cy%3D%2264%22%20r%3D%2215%22%20fill%3D%22%23bfefff%22%20opacity%3D%220.35%22%2F%3E%0A%3C%2Fsvg%3E",
+    "detailTree": [],
+    "isDefault": false,
+    "createdAt": 1793002118286,
+    "updatedAt": 1793013517827
+  },
+  {
+    "id": "new_galaxy_2",
+    "name": "新星系",
+    "nameCN": "New Galaxy",
+    "description": "",
+    "iconSvg": "data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBzdGFuZGFsb25lPSJubyI/PjwhRE9DVFlQRSBzdmcgUFVCTElDICItLy9XM0MvL0RURCBTVkcgMS4xLy9FTiIgImh0dHA6Ly93d3cudzMub3JnL0dyYXBoaWNzL1NWRy8xLjEvRFREL3N2ZzExLmR0ZCI+PHN2ZyB0PSIxNzkzMDEzNTIwODMxIiBjbGFzcz0iaWNvbiIgdmlld0JveD0iMCAwIDEwMjQgMTAyNCIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHAtaWQ9IjY0NjUiIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCI+PHBhdGggZD0iTTU5MS4zNiA4NzUuNTJhMjgxLjE3MzMzMyAyODEuMTczMzMzIDAgMCAxLTIwMC41MzMzMzMtODMuMmwtMzAuMjkzMzM0LTMwLjI5MzMzMyA0MDEuNDkzMzM0LTQwMS40OTMzMzQgMzAuMjkzMzMzIDMwLjI5MzMzNGEyODQuMTYgMjg0LjE2IDAgMCAxLTIwMC45NiA0ODQuNjkzMzMzeiBtLTEwNy4wOTMzMzMtMTE2LjQ4YTE5OC44MjY2NjcgMTk4LjgyNjY2NyAwIDAgMCAyNzQuNzczMzMzLTI3NC43NzMzMzN6IiBmaWxsPSIjMTYxNjE2IiBwLWlkPSI2NDY2Ij48L3BhdGg+PHBhdGggZD0iTTQ4Mi4xMzMzMzMgNTQyLjI5MzMzM2w2MC4zNzMzMzQtNjAuMzMwNjY2IDg1LjM3NiA4NS4zNzYtNjAuMzMwNjY3IDYwLjMzMDY2NnoiIGZpbGw9IiMxNjE2MTYiIHAtaWQ9IjY0NjciPjwvcGF0aD48cGF0aCBkPSJNNDkwLjY2NjY2NyA0OTAuNjY2NjY3bS04NS4zMzMzMzQgMGE4NS4zMzMzMzMgODUuMzMzMzMzIDAgMSAwIDE3MC42NjY2NjcgMCA4NS4zMzMzMzMgODUuMzMzMzMzIDAgMSAwLTE3MC42NjY2NjcgMFoiIGZpbGw9IiMxNjE2MTYiIHAtaWQ9IjY0NjgiPjwvcGF0aD48cGF0aCBkPSJNMjEzLjMzMzMzMyA1MTJIMTI4YTM4NCAzODQgMCAwIDEgMzg0LTM4NHY4NS4zMzMzMzNhMjk4LjY2NjY2NyAyOTguNjY2NjY3IDAgMCAwLTI5OC42NjY2NjcgMjk4LjY2NjY2N3oiIGZpbGw9IiMxNjE2MTYiIHAtaWQ9IjY0NjkiPjwvcGF0aD48cGF0aCBkPSJNMzQxLjMzMzMzMyA1MTJIMjU2YTI1NiAyNTYgMCAwIDEgMjU2LTI1NnY4NS4zMzMzMzNhMTcwLjY2NjY2NyAxNzAuNjY2NjY3IDAgMCAwLTE3MC42NjY2NjcgMTcwLjY2NjY2N3oiIGZpbGw9IiMxNjE2MTYiIHAtaWQ9IjY0NzAiPjwvcGF0aD48L3N2Zz4=",
+    "detailTree": [],
+    "isDefault": false,
+    "createdAt": 1793013767665,
+    "updatedAt": 1793013767665
+  }
+]

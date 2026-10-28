@@ -18,6 +18,15 @@ export function colorToHex(color) {
     return '#' + new THREE.Color(color).getHexString();
 }
 
+// --- 毫秒时间戳 → “YYYY-MM-DD HH:mm”（个人中心 / 网站管理共用） ---
+export function formatTime(ts) {
+    if (!ts) return '';
+    const d = new Date(Number(ts));
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 // --- Raycaster 工厂 ---
 export function createRaycaster(camera, canvas, event) {
     const { x, y } = screenToNDC(event, canvas);
@@ -55,8 +64,10 @@ export function storageLoad(key, fallback = null) {
 export function storageSave(key, value) {
     try {
         localStorage.setItem(key, JSON.stringify(value));
+        return true;
     } catch (e) {
         console.warn(`[Storage] 保存 "${key}" 失败:`, e);
+        return false;
     }
 }
 

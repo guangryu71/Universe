@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { CelestialBody } from '../js/CelestialBody.js';
 import { POS_SCALE, SYSTEM_SCALE, G, AU } from '../js/constants.js';
-import { PlacementController } from './PlacementController.js';
+import { PlacementController } from './PlacementController.js?v=2';
 
 export class BodyEditor {
     constructor(scene, camera, canvas, planets, physics, app) {
@@ -24,7 +24,7 @@ export class BodyEditor {
         // 使用共享的 PlacementController 处理放置状态机
         this.placementCtrl = new PlacementController({
             scene, camera, canvas,
-            hudParent: (app && app._hudContainer) || document.getElementById('add-body-panel') || document.body,
+            hudParent: (app && app._hudContainer) || document.body,
             hudPosition: 'panel-bottom',
             onPlaced: (x, y, z, velocity) => this._onPlaced(x, y, z, velocity),
             onPositionUpdate: (app && app._onPositionUpdate) || undefined,
@@ -51,13 +51,11 @@ export class BodyEditor {
         this.placementCtrl.exitPlaceMode();
     }
 
-    startVelocityPick() {
+    startVelocityPick(mag) {
         const pos = this.placementCtrl.getPlacedPos();
         if (!pos) return;
-        this.placementCtrl.startVelocityPick(
-            pos,
-            parseFloat(document.getElementById('abp-vel-speed')?.value) || 0
-        );
+        const speed = mag ?? (parseFloat(document.getElementById('abp-vel-speed')?.value) || 0);
+        this.placementCtrl.startVelocityPick(pos, speed);
     }
 
     getVelocity() {

@@ -72,8 +72,25 @@ export class PlacementGuides {
     /** 设置原点偏移（默认为场景原点，自定义星系中应设为中心恒星位置） */
     setOrigin(x, y, z) {
         this._origin.set(x, y, z);
-        this._gridHelper.position.set(x, y, z);
-        this._axesHelper.position.set(x, y, z);
+        this._gridHelper?.position.set(x, y, z);
+        this._axesHelper?.position.set(x, y, z);
+    }
+
+    /**
+     * 移除自带的有限网格与坐标轴（星球实验室使用 InfiniteGrid 代替）。
+     * 之后 show()/hide()/setOrigin() 都不会再操作它们。
+     */
+    disableGrid() {
+        const drop = (obj) => {
+            if (!obj) return;
+            this.scene.remove(obj);
+            obj.geometry?.dispose();
+            obj.material?.dispose();
+        };
+        drop(this._gridHelper);
+        drop(this._axesHelper);
+        this._gridHelper = null;
+        this._axesHelper = null;
     }
 
     /** XZ 定位：幽灵球到地面点 + 范围框 */
@@ -166,8 +183,8 @@ export class PlacementGuides {
 
     show() {
         this._ghostStar.visible = true;
-        this._gridHelper.visible = true;
-        this._axesHelper.visible = true;
+        if (this._gridHelper) this._gridHelper.visible = true;
+        if (this._axesHelper) this._axesHelper.visible = true;
     }
 
     hide() {
@@ -175,8 +192,8 @@ export class PlacementGuides {
         this._boxHelper.visible = false;
         this._vLine.visible = false;
         this._arrowHelper.visible = false;
-        this._gridHelper.visible = false;
-        this._axesHelper.visible = false;
+        if (this._gridHelper) this._gridHelper.visible = false;
+        if (this._axesHelper) this._axesHelper.visible = false;
     }
 
     clearAll() {
@@ -187,15 +204,14 @@ export class PlacementGuides {
     }
 
     dispose() {
-        this.scene.remove(this._boxHelper);
-        this.scene.remove(this._vLine);
-        this.scene.remove(this._arrowHelper);
-        this.scene.remove(this._ghostStar);
-        this.scene.remove(this._gridHelper);
-        this.scene.remove(this._axesHelper);
-        [this._boxHelper, this._vLine, this._ghostStar, this._gridHelper, this._axesHelper].forEach(o => {
-            if (o && o.geometry) o.geometry.dispose();
-            if (o && o.material) o.material.dispose();
-        });
+        [this._boxHelper, this._vLine, this._arrowHelper, this._ghostStar, this._gridHelper, this._axesHelper]
+            .forEach((o) => {
+                if (!o) return;
+                this.scene.remove(o);
+                if (o.geometry) o.geometry.dispose();
+                if (o.material) o.material.dispose();
+            });
+        this._gridHelper = null;
+        this._axesHelper = null;
     }
 }

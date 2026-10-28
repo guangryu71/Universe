@@ -25,6 +25,8 @@ export class MoonBody {
      *   static COLOR        = <颜色>
      *   static TEXTURE      = <贴图路径或 null>
      *   static DETAILS      = '<详细描述>'
+     *   static DETAIL_TREE  = <文件夹式详情数据（可选）>
+     *   static SURFACE_TREE = <文件夹式地表图片数据（可选）>
      *   static VOICE_INTRO  = '<语音简介>'
      */
 
@@ -43,6 +45,8 @@ export class MoonBody {
         this.visualRadius = Cls.VISUAL_RADIUS * SYSTEM_SCALE;
         this.color        = Cls.COLOR;
         this.details      = Cls.DETAILS || '';
+        this.detailTree   = Array.isArray(Cls.DETAIL_TREE) ? Cls.DETAIL_TREE : null;
+        this.surfaceTree  = Array.isArray(Cls.SURFACE_TREE) ? Cls.SURFACE_TREE : null;
         this.voiceIntro   = Cls.VOICE_INTRO || '';
 
         // 创建网格
@@ -58,6 +62,8 @@ export class MoonBody {
             parentKey: this.parentKey,
             moonKey: this.key,
             moonBody: this,
+            // ui.js 点击卫星时读取 moonData
+            moonData: this,
         };
         scene.add(this.mesh);
     }

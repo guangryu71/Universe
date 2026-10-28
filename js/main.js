@@ -6,20 +6,29 @@
 
 import { SceneManager } from './scene.js';
 import { PhysicsEngine } from './physics.js';
-import { UIManager } from './ui.js';
-import { BGMManager } from './bgm.js?v=2';
+import { UIManager } from './ui.js?v=8';
+import { BGMManager } from './bgm.js?v=4';
 import { SIM_DT, POS_SCALE, SYSTEM_SCALE } from './constants.js';
 import { createMoons, updateMoons } from './moons.js';
 import { CelestialBody } from './CelestialBody.js';
-import { BodyEditor } from '../add-planet/BodyEditor.js';
-import { openOverlay } from '../model-chat/js/overlay.js';
-import { speak as vsSpeak, initVoiceSettings } from './voice_settings.js';
-import { ShipModule } from '../ship/js/bridge.js';
-import { GalaxyBrowser } from './GalaxyBrowser.js';
-import { FocusController } from './FocusController.js';
-import { PlanetLab } from '../add-planet/PlanetLab.js';
+import { openOverlay } from '../model-chat/js/overlay.js?v=6';
+import { speak as vsSpeak, initVoiceSettings } from './voice_settings.js?v=3';
+import { ShipModule } from '../ship/js/bridge.js?v=10';
+import { GalaxyBrowser } from './GalaxyBrowser.js?v=38';
+import { getGalaxyById } from './galaxyRegistry.js?v=8';
+import { loadUniverseGalaxies, resolveSystemGalaxyId } from './UniverseRegistry.js?v=7';
+import { PersonalCenter } from './PersonalCenter.js?v=8';
+import { AdminPanel, computeEntryActivity } from './AdminPanel.js?v=10';
+import {
+    refreshSession, getCurrentUser, isStaff, onSessionChange, roleIcon, displayNameOf,
+    getCommandedGalaxies,
+} from './session.js?v=1';
+import { escapeHtml } from './utils.js';
+import { FocusController } from './FocusController.js?v=2';
+import { FreeFlyController } from './FreeFlyController.js?v=3';
+import { PlanetLab } from '../add-planet/PlanetLab.js?v=13';
 import { SystemManager } from './SystemManager.js';
-import { TimeParticles } from './TimeParticles.js';
+import { TimeParticles } from './TimeParticles.js?v=2';
 import { soundManager } from './SoundManager.js';
 
 import * as solarSystemModule from '../Galaxy/solar system/index.js';
@@ -81,12 +90,23 @@ class SolarSystemApp {
             (body, moonData) => this._openCalcOverlay(body, moonData),
             () => this._destroyProbe(),
             (body) => { if (body.voiceIntro) vsSpeak(body.voiceIntro); },
+            (planetKey, moonKey) => this._showSurface(planetKey, moonKey),
         );
 
-        this.bgm = new BGMManager();
-        document.getElementById('music-upload-btn')?.addEventListener('click', () => {
-            this.bgm.triggerUpload();
+        // 关联星体：详情弹窗内点击关联星体 → 跳到它所在的星体系统并聚焦
+        this.ui.setRelationContext({
+            getSystemId: () => this.systemManager?.getActiveSystemId?.() || null,
+            navigateToBody: (systemId, bodyKey) => {
+                this.ui.hideDetailModal();
+                this.ui.hideCard();
+                this.focusController.dismiss();
+                this.systemManager.switchTo(systemId);
+                if (bodyKey && this.planets[bodyKey]) this.focusController.focusByKey(bodyKey);
+                else this.focusController.navigateToGalaxy(systemId);
+            },
         });
+
+        this.bgm = new BGMManager();
 
         // 星语设置
         initVoiceSettings();
@@ -105,8 +125,11 @@ class SolarSystemApp {
         this._manualCursor = null;
         this._recalling = false;
 
-        // --- 添加星体编辑器 ---
-        this._setupBodyEditor();
+        // --- 轨道线重绘 ---
+        this._setupOrbitRebuild();
+
+        // --- 自由飞行预览（WASD / Shift / Ctrl） ---
+        this._setupFreeFly();
 
         // --- AI ---
         document.getElementById('chat-launcher')?.addEventListener('click', openOverlay);
@@ -123,16 +146,11 @@ class SolarSystemApp {
         document.addEventListener('click', (e) => {
             const btn = e.target.closest('button');
             if (!btn || btn.closest('.sci-fi-btn')) return; // 右上角按钮已有独立音效
-            if (btn.closest('.chat-window, .chat-login, .music-popup, .add-body-panel, .vs-panel, .add-galaxy-panel, .fui-window, .calc-panel, [id^=pl-], .ship-nav-window')) {
+            if (btn.closest('.chat-window, .chat-login, .music-popup, .vs-panel, .add-galaxy-panel, .fui-window, .calc-panel, [id^=pl-], .ship-nav-window')) {
                 const sm = window.__soundManager;
                 if (sm && sm.isReady()) sm.play('btnInside', { volume: 0.25, detune: Math.random() * 100 - 50 });
             }
         }, true);
-
-        // --- FPS ---
-        this.fpsEl = document.getElementById('fps');
-        this.frameCount = 0;
-        this.lastFpsTime = performance.now();
 
         document.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -141,7 +159,7 @@ class SolarSystemApp {
                 if (this._manualAim) this._exitManualAim();
                 if (this.probeData) this._destroyProbe();
                 if (this.surfaceOverlay && !this.surfaceOverlay.classList.contains('hidden')) {
-                    this.surfaceOverlay.classList.add('hidden');
+                    this._hideSurface();
                 }
                 if (this.calcOverlay && !this.calcOverlay.classList.contains('hidden')) {
                     this.calcOverlay.classList.add('hidden');
@@ -164,7 +182,7 @@ class SolarSystemApp {
             this.physics,
         );
 
-        // ---- 星系浏览器 ----
+        // ---- 星体数据库 ----
         this.galaxyBrowser = new GalaxyBrowser({
             planets: this.planets,
             physics: this.physics,
@@ -184,15 +202,30 @@ class SolarSystemApp {
             if (this.shipModule && this.shipModule.isActive()) return;
             this.galaxyBrowser.show();
         });
+        document.getElementById('universe-view-btn')?.addEventListener('click', () => {
+            if (this.shipModule && this.shipModule.isActive()) return;
+            this.galaxyBrowser.openUniverseView({ fromDb: false });
+        });
+
+        // ---- 社区：个人中心 / 网站管理 / 星系管理 ----
+        this._setupCommunity();
+
+        // ---- 主场景左上角层级导航（宇宙 / 星系 / 星体系统）----
+        this._setupSceneCrumbs();
 
         // ---- 进入飞船按钮 ----
         document.getElementById('ship-entry-btn')?.addEventListener('click', () => {
             if (this.shipModule && this.shipModule.isActive()) return;
+            this.freeFly?.disable();
             this.shipModule.enterShip();
         });
 
         // ---- 星球实验室 ----
-        this.planetLab = new PlanetLab();
+        // 实验室导出的星体系统统一交给星体数据库入库（SQLite + 本地缓存 + 场景实例化）
+        this.planetLab = new PlanetLab({
+            onExportSystem: (payload) => this.galaxyBrowser.addSystemFromLab(payload),
+            onRequireLogin: () => this.personalCenter?.openLogin?.(),
+        });
         document.getElementById('planet-lab-btn')?.addEventListener('click', () => {
             if (this.shipModule && this.shipModule.isActive()) return;
             this.planetLab.open();
@@ -236,11 +269,189 @@ class SolarSystemApp {
         this._animate();
     }
 
+    // ==================== 社区 ====================
+
+    _setupCommunity() {
+        this.personalCenter = new PersonalCenter({
+            onEditSystem: (systemId) => {
+                this.galaxyBrowser.hide();
+                this.galaxyBrowser.openSystemEditor(systemId);
+            },
+            onOpenGalaxyManager: (galaxyId) => this.adminPanel.openGalaxyManage(galaxyId),
+            onOpenUniverse: () => this.galaxyBrowser.openUniverseView({ fromDb: false }),
+            // 草稿发布：服务器翻转状态 → 重建场景实例 → 刷新各视图
+            onPublishDraft: (systemId) => this.galaxyBrowser.publishDraft(systemId),
+            onWorldChanged: () => this._refreshCommunityWorld(),
+        });
+
+        this.adminPanel = new AdminPanel({
+            onEditSystem: (systemId) => this.galaxyBrowser.openSystemEditor(systemId),
+            onDeleteSystem: (systemId) => this.galaxyBrowser.deleteSystemById(systemId, { silent: true }),
+            onRefreshWorld: () => this._refreshCommunityWorld(),
+            onBgmChanged: () => this.bgm?.reloadPlaylist?.(),
+            onOpenBgmPlayer: () => this.bgm?.openPopup?.(),
+        });
+
+        // 星体数据库 / 宇宙视图需要登录、星系管理时的统一入口
+        this.galaxyBrowser.setCommunityHandlers({
+            onRequireLogin: () => this.personalCenter.openLogin(),
+            onManageGalaxy: (galaxyId) => this.adminPanel.openGalaxyManage(galaxyId),
+        });
+
+        document.getElementById('profile-btn')?.addEventListener('click', () => {
+            if (this.shipModule?.isActive()) return;
+            if (getCurrentUser()) this.personalCenter.open();
+            else this.personalCenter.openLogin();
+        });
+        document.getElementById('site-admin-btn')?.addEventListener('click', () => {
+            if (this.shipModule?.isActive()) return;
+            if (isStaff()) this.adminPanel.open();
+            else this.adminPanel.openCommander();
+        });
+
+        onSessionChange(() => this._updateCommunityEntries());
+
+        refreshSession().then(() => this._updateCommunityEntries()).catch(() => {});
+
+        // 定时复查管理入口红点（新成员 / 新审核），页面隐藏时不请求
+        setInterval(() => {
+            if (document.hidden) return;
+            this._refreshEntryDot(this._canOpenCommunityPanel());
+        }, 60000);
+    }
+
+    /** 当前角色是否能看到右上角管理入口（职员 = 网站管理，指挥官 = 星系管理） */
+    _canOpenCommunityPanel() {
+        return isStaff() || getCommandedGalaxies().length > 0;
+    }
+
+    /** 根据登录状态 / 角色 / 指挥官身份显示右上角社区入口 */
+    _updateCommunityEntries() {
+        const user = getCurrentUser();
+        const staff = isStaff();
+        const commanded = getCommandedGalaxies();
+        const icon = document.getElementById('profile-btn-icon');
+        if (icon) icon.textContent = user ? roleIcon(user.role) : '🧑‍🚀';
+        const profileBtn = document.getElementById('profile-btn');
+        if (profileBtn) {
+            profileBtn.title = user
+                ? `个人中心 · ${displayNameOf(user)}${user.unread ? ` · ${user.unread} 条未读` : ''}`
+                : '登录 / 注册';
+        }
+        // 职员进入“网站管理”；仅有指挥官身份的公民进入“星系管理”（同一个窗口）。
+        const adminBtn = document.getElementById('site-admin-btn');
+        const adminBtnIcon = document.getElementById('site-admin-btn-icon');
+        const canOpen = staff || commanded.length > 0;
+        adminBtn?.classList.toggle('hidden', !canOpen);
+        // 没有管理入口时，右侧按钮整体右移补位，保持同一行且相邻
+        document.body.classList.toggle('has-admin-entry', canOpen);
+        if (adminBtn) {
+            adminBtn.title = staff ? '网站管理' : '星系管理';
+            if (adminBtnIcon) adminBtnIcon.textContent = staff ? '🛠' : '🛰';
+        }
+        this.personalCenter?.updateBadge?.();
+        this._refreshEntryDot(canOpen);
+    }
+
+    /**
+     * 右上角管理入口红点：待审核内容 / 自己星系的新成员。
+     * 只对能看到入口的角色查询，避免无谓的接口请求。
+     */
+    async _refreshEntryDot(canOpen) {
+        const dot = document.getElementById('site-admin-dot');
+        if (!dot) return;
+        if (!canOpen) {
+            dot.classList.add('hidden');
+            return;
+        }
+        if (this._entryDotLoading) return;
+        this._entryDotLoading = true;
+        try {
+            const hasNew = await computeEntryActivity();
+            dot.classList.toggle('hidden', !hasNew);
+        } catch {
+            dot.classList.add('hidden');
+        } finally {
+            this._entryDotLoading = false;
+        }
+    }
+
+    /** 审核 / 删除 / 星系变更后刷新星体数据库、宇宙视图与层级导航 */
+    async _refreshCommunityWorld() {
+        try {
+            await this.galaxyBrowser.refreshCommunity();
+        } catch (e) {
+            console.warn('[main] 社区数据刷新失败:', e?.message || e);
+        }
+        this._updateCommunityEntries();
+        const active = this.systemManager?.getActiveSystemId?.();
+        if (active) this._updateSceneCrumbs(active);
+    }
+
     // ==================== 系统切换管理 ====================
+
+    /** 主场景左上角层级导航：宇宙 / 所属星系 / 当前星体系统 */
+    _setupSceneCrumbs() {
+        this.sceneCrumbsEl = document.getElementById('scene-crumbs');
+        if (!this.sceneCrumbsEl) return;
+        this.sceneCrumbsEl.addEventListener('click', (e) => {
+            const link = e.target.closest('[data-crumb]');
+            if (!link) return;
+            if (link.dataset.crumb === 'universe') {
+                this.galaxyBrowser.openUniverseView({ fromDb: false });
+            } else if (link.dataset.crumb === 'galaxy') {
+                this.galaxyBrowser.openUniverseView({
+                    galaxyId: link.dataset.galaxyId || undefined,
+                    fromDb: false,
+                });
+            } else if (link.dataset.crumb === 'system') {
+                const systemId = link.dataset.systemId;
+                if (!systemId || this.systemManager?.getActiveSystemId?.() === systemId) return;
+                this.focusController.dismiss();
+                this.systemManager.switchTo(systemId);
+                this.focusController.navigateToGalaxy(systemId);
+            }
+        });
+    }
+
+    async _updateSceneCrumbs(systemId) {
+        const el = this.sceneCrumbsEl;
+        if (!el) return;
+        const system = getGalaxyById(systemId);
+        if (!system) {
+            el.classList.add('hidden');
+            return;
+        }
+
+        let galaxies = [];
+        try {
+            galaxies = await loadUniverseGalaxies();
+        } catch {
+            galaxies = [];
+        }
+        // 异步返回时可能已经切到别的系统
+        if (this.systemManager?.getActiveSystemId?.() !== systemId) return;
+
+        const galaxyId = resolveSystemGalaxyId(system, galaxies);
+        const galaxy = galaxies.find(g => g.id === galaxyId);
+        const galaxyName = galaxy?.name || '银河系';
+
+        el.innerHTML = `
+            <span class="sc-crumb sc-link" data-crumb="universe">宇宙</span>
+            <span class="sc-sep">/</span>
+            <span class="sc-crumb sc-link" data-crumb="galaxy" data-galaxy-id="${escapeHtml(galaxyId)}">${escapeHtml(galaxyName)}</span>
+            <span class="sc-sep">/</span>
+            <span class="sc-crumb sc-link sc-current" data-crumb="system" data-system-id="${escapeHtml(systemId)}" title="当前星体系统">${escapeHtml(system.name || systemId)}</span>
+        `;
+        el.classList.remove('hidden');
+    }
 
     /** 系统切换完成回调 */
     _onSystemSwitch(systemId) {
         console.log(`[main] 系统切换到: ${systemId}`);
+        // 切换系统会重置相机，自由飞行需要先退出
+        this.freeFly?.disable();
+        this._updateSceneCrumbs(systemId);
 
         // 如果有探测器，销毁
         if (this.probeData) this._destroyProbe();
@@ -316,6 +527,13 @@ class SolarSystemApp {
         });
         this.slider.addEventListener('touchstart', () => { this._sliderDragging = true; });
         this.slider.addEventListener('touchend', () => {
+            this._sliderDragging = false;
+            if (this.timeParticles) this.timeParticles.setDragging(false, this.slider.value, this._prevSliderVal);
+        });
+
+        // 窗口级兜底：在滑块外松手时也能结束拖拽，避免粒子特效一直循环播放
+        window.addEventListener('pointerup', () => {
+            if (!this._sliderDragging) return;
             this._sliderDragging = false;
             if (this.timeParticles) this.timeParticles.setDragging(false, this.slider.value, this._prevSliderVal);
         });
@@ -1030,21 +1248,30 @@ class SolarSystemApp {
         this._exitManualAim();
     }
 
-    // ==================== 添加星体编辑器 ====================
-    _setupBodyEditor() {
-        this.addBodyPanel = document.getElementById('add-body-panel');
-        this.addBodyBtn = document.getElementById('add-body-btn');
+    // ==================== 自由飞行预览 ====================
+    _setupFreeFly() {
+        const btn = document.getElementById('free-fly-btn');
+        this.freeFly = new FreeFlyController({
+            camera: this.sceneManager.camera,
+            domElement: this.canvas,
+            controls: this.sceneManager.controls,
+            focusController: this.focusController,
+            onStateChange: (active) => {
+                btn?.classList.toggle('is-active', active);
+                btn?.setAttribute('aria-pressed', active ? 'true' : 'false');
+                if (btn) btn.title = active
+                    ? '退出自由飞行（Esc）'
+                    : '自由飞行预览（WASD 移动 · Shift 加速 · Ctrl 下沉）';
+            },
+        });
+        btn?.addEventListener('click', () => {
+            if (this.shipModule?.isActive()) return;
+            this.freeFly.toggle();
+        });
+    }
 
-        this.bodyEditor = new BodyEditor(
-            this.sceneManager.scene,
-            this.sceneManager.camera,
-            this.canvas,
-            this.planets,
-            this.physics,
-            this,
-        );
-
-        // 轨道线重绘按钮
+    // ==================== 轨道线重绘 ====================
+    _setupOrbitRebuild() {
         document.getElementById('abp-rebuild-orbits')?.addEventListener('click', () => {
             if (this._orbitRecalcBusy) {
                 console.log('[轨道] 正在计算中，请稍候');
@@ -1052,208 +1279,7 @@ class SolarSystemApp {
             }
             this._refreshOrbits();
         });
-
-        this.addBodyBtn?.addEventListener('click', () => {
-            const isOpen = !this.addBodyPanel.classList.contains('hidden');
-            const schPanel = document.getElementById('schwarzschild-info');
-            if (isOpen) {
-                this.addBodyPanel.classList.add('hidden');
-                if (schPanel) schPanel.classList.add('hidden');
-                this.bodyEditor.exitPlaceMode();
-            } else {
-                if (confirm('⚠️ 添加星体会改变当前星系结构\n\n新增的星体会加入物理引擎并影响现有天体的轨道。\n\n是否继续？')) {
-                    this.addBodyPanel.classList.remove('hidden');
-                    if (schPanel) schPanel.classList.remove('hidden');
-                    this._switchToTab('abp-add');
-                    // 设置放置原点为当前系统的中心恒星
-                    const starBody = this.physics.bodies.find(b => b.key === 'sun')
-                        || this.physics.bodies.reduce((a, b) => a.mass > b.mass ? a : b, this.physics.bodies[0]);
-                    if (starBody && starBody.mesh) {
-                        this.bodyEditor.placementCtrl.setOrigin(
-                            starBody.mesh.position.x,
-                            starBody.mesh.position.y,
-                            starBody.mesh.position.z
-                        );
-                    }
-                    this.bodyEditor.enterPlaceMode();
-                }
-            }
-        });
-
-        document.getElementById('abp-close')?.addEventListener('click', () => {
-            this.addBodyPanel.classList.add('hidden');
-            const schPanel = document.getElementById('schwarzschild-info');
-            if (schPanel) schPanel.classList.add('hidden');
-            this.bodyEditor.exitPlaceMode();
-        });
-
-        this.addBodyPanel?.querySelectorAll('.abp-tab').forEach(tab => {
-            tab.addEventListener('click', () => {
-                const targetId = tab.dataset.tab;
-                this._switchToTab(targetId);
-                if (targetId === 'abp-list') {
-                    this.bodyEditor.exitPlaceMode();
-                    this._refreshBodyList();
-                } else if (targetId === 'abp-add') {
-                    this.bodyEditor.enterPlaceMode();
-                }
-            });
-        });
-
-        const confirmBtn = document.getElementById('abp-confirm');
-        confirmBtn?.addEventListener('click', () => {
-            if (!this._placementPos) return;
-            const name = document.getElementById('abp-name').value || '新星体';
-            const mass = parseFloat(document.getElementById('abp-mass').value) || 1e24;
-            const radius = parseFloat(document.getElementById('abp-radius').value) || 5000;
-            const color = document.getElementById('abp-color').value || '#ff8844';
-            const visualR = parseFloat(document.getElementById('abp-visual').value) || 1.2;
-            const { x, y, z } = this._placementPos;
-
-            this.bodyEditor.confirmCreate({ name, mass, radius, color, visualR, x, y, z });
-            // 确认后隐藏所有引导元素
-            if (this.bodyEditor.placementCtrl.guides) {
-                this.bodyEditor.placementCtrl.guides.hide();
-                this.bodyEditor.placementCtrl.guides.clearAll();
-            }
-            this._placementPos = null;
-            confirmBtn.disabled = true;
-            confirmBtn.textContent = '📍 先点击场景放置位置';
-            document.getElementById('abp-pos-info').textContent = '等待放置...';
-            document.getElementById('abp-vel-info').textContent = '未设置';
-            document.getElementById('abp-velocity-section')?.classList.add('hidden');
-            this._refreshBodyList();
-        });
-
-        // ---- 视觉大小实时更新预览球 ----
-        document.getElementById('abp-visual')?.addEventListener('input', (e) => {
-            const val = parseFloat(e.target.value) || 1.0;
-            if (this.bodyEditor && this.bodyEditor.placementCtrl.guides) {
-                this.bodyEditor.placementCtrl.guides.setPreviewScale(val);
-            }
-        });
-
-        // ---- 初速度 ----
-        document.getElementById('abp-vel-btn')?.addEventListener('click', () => {
-            this.bodyEditor.setVelocityMagnitude(
-                parseFloat(document.getElementById('abp-vel-speed').value) || 0
-            );
-            this.bodyEditor.startVelocityPick();
-        });
-        document.getElementById('abp-vel-speed')?.addEventListener('input', (e) => {
-            this.bodyEditor.setVelocityMagnitude(parseFloat(e.target.value) || 0);
-        });
     }
-
-    _onPlacementDone(x, y, z, au) {
-        this._placementPos = { x, y, z };
-        document.getElementById('abp-pos-info').textContent =
-            `(${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}) ≈ ${au.toFixed(2)} AU`;
-        const confirmBtn = document.getElementById('abp-confirm');
-        if (confirmBtn) {
-            confirmBtn.disabled = false;
-            confirmBtn.textContent = '🚀 确认发射入轨';
-        }
-        // 显示初速度区域
-        const velSection = document.getElementById('abp-velocity-section');
-        if (velSection) velSection.classList.remove('hidden');
-        document.getElementById('abp-vel-info').textContent = '未设置（默认计算轨道速度）';
-        this._switchToTab('abp-add');
-    }
-
-    _onVelocityDone() {
-        const vel = this.bodyEditor.getVelocity();
-        const mag = vel.length();
-        document.getElementById('abp-vel-info').textContent =
-            `方向已设定 | 大小: ${mag.toFixed(1)} m/s`;
-    }
-
-    _switchToTab(targetId) {
-        this.addBodyPanel.querySelectorAll('.abp-tab').forEach(t => {
-            t.classList.toggle('active', t.dataset.tab === targetId);
-        });
-        this.addBodyPanel.querySelectorAll('.abp-section').forEach(s => {
-            s.classList.toggle('active', s.id === targetId);
-        });
-    }
-
-    _refreshBodyList() {
-        const listBody = document.getElementById('abp-list-body');
-        if (!listBody) return;
-        const list = this.bodyEditor.getCustomBodies();
-        if (list.length === 0) {
-            listBody.innerHTML = '<div style="color:#667;font-size:12px;text-align:center;padding:10px;">暂无自定义星体</div>';
-            return;
-        }
-        listBody.innerHTML = list.map(c => {
-            const mass = c.mass || 0;
-            const radius = c.radius || 0;
-            const visR = c.visualR || 1.0;
-            const isBH = c.isBlackHole || false;
-            const nameTag = isBH ? '🕳️ ' : '';
-            const infoText = c.radius ? `${(mass / 1e24).toFixed(1)}e24 kg · ${(radius / 1000).toFixed(0)} km` : '黑洞';
-            return `
-            <div class="abp-list-item" data-key="${c.key}">
-                <div class="abp-list-main">
-                    <span class="abp-list-name">${nameTag}${c.name}</span>
-                    <span class="abp-list-info">${infoText}</span>
-                </div>
-                <span class="abp-list-actions">
-                    <button class="abp-edit" data-key="${c.key}">✎</button>
-                    <button class="abp-del" data-key="${c.key}">🗑</button>
-                </span>
-            </div>
-            <div class="abp-edit-row hidden" data-key="${c.key}">
-                <input class="abp-edit-name" value="${c.name}" placeholder="名称" />
-                <input class="abp-edit-mass" type="number" value="${mass}" step="any" placeholder="质量(kg)" />
-                <input class="abp-edit-visual" type="number" value="${visR}" step="0.1" placeholder="视觉大小" />
-                <button class="abp-edit-save" data-key="${c.key}">💾</button>
-            </div>
-        `}).join('');
-
-        // 悬浮高亮
-        listBody.querySelectorAll('.abp-list-item').forEach(item => {
-            const key = item.dataset.key;
-            item.addEventListener('mouseenter', () => this.bodyEditor.highlightBody(key, true));
-            item.addEventListener('mouseleave', () => this.bodyEditor.highlightBody(key, false));
-        });
-
-        // 删除
-        listBody.querySelectorAll('.abp-del').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this.bodyEditor.deleteBody(btn.dataset.key);
-                this._refreshBodyList();
-            });
-        });
-
-        // 编辑展开
-        listBody.querySelectorAll('.abp-edit').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const key = btn.dataset.key;
-                const row = listBody.querySelector(`.abp-edit-row[data-key="${key}"]`);
-                row.classList.toggle('hidden');
-            });
-        });
-
-        // 保存编辑
-        listBody.querySelectorAll('.abp-edit-save').forEach(btn => {
-            btn.addEventListener('click', () => {
-                const key = btn.dataset.key;
-                const row = listBody.querySelector(`.abp-edit-row[data-key="${key}"]`);
-                const name = row.querySelector('.abp-edit-name').value;
-                const mass = parseFloat(row.querySelector('.abp-edit-mass').value);
-                const visualR = parseFloat(row.querySelector('.abp-edit-visual').value);
-                const updates = {};
-                if (name) updates.name = name;
-                if (!isNaN(mass)) updates.mass = mass;
-                if (!isNaN(visualR)) updates.visualR = visualR;
-                this.bodyEditor.editBody(key, updates);
-                row.classList.add('hidden');
-                this._refreshBodyList();
-            });
-        });
-    }
-
     _showToast(msg) {
         const el = document.getElementById('toast');
         if (!el) return;
@@ -1286,8 +1312,9 @@ class SolarSystemApp {
             return;
         }
 
-        // --- 卫星式追踪 ---
-        this.focusController.update();
+        // --- 自由飞行 / 卫星式追踪 ---
+        if (this.freeFly?.isActive()) this.freeFly.update(dt);
+        else this.focusController.update();
 
         // --- 探测器 ---
         if (this.probeData && this.probeMesh) {
@@ -1365,48 +1392,147 @@ class SolarSystemApp {
             }
         }
 
-        this.sceneManager.render(this.focusController.isFocused);
-
-        this.frameCount++;
-        const now = performance.now();
-        if (now - this.lastFpsTime >= 1000) {
-            this.fpsEl.textContent = 'FPS: ' + Math.round(this.frameCount / ((now - this.lastFpsTime) / 1000));
-            this.frameCount = 0;
-            this.lastFpsTime = now;
-        }
+        // 自由飞行时由 FreeFlyController 接管相机，跳过 OrbitControls 更新
+        this.sceneManager.render(this.focusController.isFocused || this.freeFly?.isActive());
     }
 
     // ==================== 表面全景 ====================
     _setupSurfaceViewer() {
         this.surfaceOverlay = document.getElementById('surface-overlay');
-        this.surfaceImage = document.getElementById('surface-image');
+        this.surfaceGrid = document.getElementById('surface-grid');
+        this.surfaceEmpty = document.getElementById('surface-empty');
         this.surfaceTitle = document.getElementById('surface-title');
         this.surfaceClose = document.getElementById('surface-close');
-        this.surfaceClose?.addEventListener('click', () => this.surfaceOverlay.classList.add('hidden'));
+        this.surfaceClose?.addEventListener('click', () => this._hideSurface());
         this.surfaceOverlay?.addEventListener('click', (e) => {
-            if (e.target === this.surfaceOverlay) this.surfaceOverlay.classList.add('hidden');
+            if (e.target === this.surfaceOverlay) this._hideSurface();
         });
     }
 
+    _hideSurface() {
+        this.surfaceOverlay?.classList.add('hidden');
+        this.surfaceOverlay?.querySelector('.surface-preview')?.remove();
+    }
+
+    /** 收集地表文件夹树中的图片 */
+    _collectSurfaceImages(surfaceTree) {
+        const out = [];
+        const walk = (nodes) => {
+            for (const n of nodes || []) {
+                if (!n) continue;
+                if (n.type === 'folder') walk(n.children);
+                else if (n.type === 'image' && n.url) {
+                    out.push({ name: n.name || '地表图片', url: n.url });
+                }
+            }
+        };
+        walk(Array.isArray(surfaceTree) ? surfaceTree : []);
+        return out;
+    }
+
     _showSurface(planetKey, moonKey) {
-        const fileName = moonKey ? `${planetKey}_${moonKey}.jpg` : `${planetKey}.jpg`;
-        const name = moonKey
-            ? this.allMoons[planetKey]?.find(m => m.key === moonKey)?.name || moonKey
-            : this.planets[planetKey]?.nameCN || planetKey;
+        const moon = moonKey ? (this.allMoons[planetKey] || []).find(m => m.key === moonKey) : null;
+        const body = this.planets[planetKey];
+        const info = moon || body;
+        const name = moon
+            ? (moon.name || moonKey)
+            : (body?.nameCN || planetKey);
+
+        let images = this._collectSurfaceImages(info?.surfaceTree);
+
+        // 兼容旧数据：没有上传地表图片时，沿用原有的单张表面图 / 贴图
+        if (images.length === 0) {
+            const fileName = moonKey ? `${planetKey}_${moonKey}.jpg` : `${planetKey}.jpg`;
+            const fallback = moon ? (moon.texturePath || null) : (body?.texturePath || null);
+            images = [{
+                name: fileName,
+                url: SURFACE_DIR + fileName,
+                fallback,
+            }];
+        }
+
+        this.surfaceTitle.textContent = `${name} — 地表图片（${images.length}）`;
+        this.surfaceGrid.innerHTML = '';
+        this.surfaceOverlay.querySelector('.surface-preview')?.remove();
+
+        const showEmpty = () => {
+            this.surfaceGrid.classList.add('hidden');
+            this.surfaceEmpty.classList.remove('hidden');
+        };
+        const refreshEmpty = () => {
+            if (this.surfaceGrid.children.length === 0) showEmpty();
+        };
+
+        images.forEach(item => {
+            const tile = document.createElement('div');
+            tile.className = 'surface-tile';
+
+            const img = document.createElement('img');
+            img.className = 'surface-thumb';
+            img.src = item.url;
+            img.alt = item.name;
+            img.loading = 'lazy';
+            // 记录当前实际显示的地址：主地址加载失败时会退回到贴图，
+            // 放大预览必须使用同一地址，否则会再次请求失效的旧文件
+            let currentUrl = item.url;
+            let triedFallback = false;
+            img.onerror = () => {
+                if (!triedFallback && item.fallback) {
+                    triedFallback = true;
+                    currentUrl = item.fallback;
+                    img.src = item.fallback;
+                    return;
+                }
+                img.onerror = null;
+                tile.remove();
+                refreshEmpty();
+            };
+
+            const cap = document.createElement('div');
+            cap.className = 'surface-tile-name';
+            cap.textContent = item.name;
+            cap.title = item.name;
+
+            tile.appendChild(img);
+            tile.appendChild(cap);
+            tile.addEventListener('click', () => this._previewSurface(currentUrl, item.name, item.fallback));
+            this.surfaceGrid.appendChild(tile);
+        });
+
+        if (images.length === 0) showEmpty();
+        else {
+            this.surfaceGrid.classList.remove('hidden');
+            this.surfaceEmpty.classList.add('hidden');
+        }
+
         document.body.style.transition = 'opacity 0.15s';
         document.body.style.opacity = '0';
         setTimeout(() => {
-            this.surfaceImage.src = SURFACE_DIR + fileName;
-            this.surfaceImage.onerror = () => {
-                this.surfaceImage.src = '';
-                this.surfaceTitle.textContent = `${name} — 表面图未找到`;
-            };
-            this.surfaceImage.onload = () => {
-                this.surfaceTitle.textContent = `${name} 表面`;
-            };
             this.surfaceOverlay.classList.remove('hidden');
             document.body.style.opacity = '1';
         }, 180);
+    }
+
+    _previewSurface(url, name, fallback = null) {
+        this.surfaceOverlay.querySelector('.surface-preview')?.remove();
+        const preview = document.createElement('div');
+        preview.className = 'surface-preview';
+        const img = document.createElement('img');
+        img.alt = name;
+        // 主图失效时退回贴图（缩略图可能已经走过同样的回退）
+        if (fallback && fallback !== url) {
+            img.onerror = () => {
+                img.onerror = null;
+                img.src = fallback;
+            };
+        }
+        img.src = url;
+        const cap = document.createElement('span');
+        cap.textContent = name;
+        preview.appendChild(img);
+        preview.appendChild(cap);
+        preview.addEventListener('click', () => preview.remove());
+        this.surfaceOverlay.appendChild(preview);
     }
 }
 

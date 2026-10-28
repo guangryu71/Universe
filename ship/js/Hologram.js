@@ -74,11 +74,15 @@ export class Hologram {
         this.zoomTargetScale = 1;
         this._zoomPlanet = null;
         this.currentScale = 1.0;
+        this.targetScale = 1.0;   // 滚轮目标缩放，由 update() 平滑逼近
         this.isUIActive = false;
         this.isHoverShell = false;
 
         this.raycaster = new THREE.Raycaster();
         this.crosshairVec = new THREE.Vector2(0, 0);
+        // body.texturePath → THREE.Texture，重建时复用，避免重复加载
+        this._textureCache = new Map();
+        this._textureLoader = new THREE.TextureLoader();
 
         this.group = new THREE.Group();
         this.group.position.copy(this.anchor);
@@ -138,14 +142,22 @@ export class Hologram {
             ring.rotation.x = -Math.PI / 2;
             this.group.add(ring);
 
-            // 行星小球
+            // 行星小球 — 自定义贴图优先，否则使用纯色
+            const map = this._getBodyTexture(b);
             const mesh = new THREE.Mesh(
                 new THREE.SphereGeometry(size, 16, 16),
-                new THREE.MeshStandardMaterial({
-                    color: col, emissive: col,
-                    emissiveIntensity: cfg.emissiveNormal,
-                    roughness: 0.6, metalness: 0.3,
-                })
+                new THREE.MeshStandardMaterial(map
+                    ? {
+                        map, color: 0xffffff, emissive: col,
+                        // 贴图模式下降低自发光，避免盖住纹理颜色
+                        emissiveIntensity: cfg.emissiveNormal * 0.4,
+                        roughness: 0.6, metalness: 0.3,
+                    }
+                    : {
+                        color: col, emissive: col,
+                        emissiveIntensity: cfg.emissiveNormal,
+                        roughness: 0.6, metalness: 0.3,
+                    })
             );
             const startAngle = (idx / planets.length) * Math.PI * 2
                 + (idx % 2 === 0 ? 0 : Math.PI / planets.length);
@@ -175,6 +187,23 @@ export class Hologram {
             this.planetMeshes.push(mesh);
             this.planetAnimData.push({ mesh, orbit, speed, startAngle, currentAngle: startAngle });
         });
+    }
+
+    /** 按贴图路径加载并缓存纹理；纯色球返回 null */
+    _getBodyTexture(body) {
+        const path = body?.texturePath;
+        if (!path) return null;
+
+        let tex = this._textureCache.get(path);
+        if (!tex) {
+            tex = this._textureLoader.load(path, undefined, undefined, () => {
+                // 加载失败时移除缓存，下次重建可重试
+                this._textureCache.delete(path);
+            });
+            tex.colorSpace = THREE.SRGBColorSpace;
+            this._textureCache.set(path, tex);
+        }
+        return tex;
     }
 
     // ============ 3D 构建（太阳、外壳、线框）============
@@ -363,12 +392,12 @@ export class Hologram {
     handleWheel(deltaY) {
         const cfg = HOLOGRAM_CFG;
         const d = deltaY > 0 ? -cfg.zoomStep : cfg.zoomStep;
-        this.currentScale = Math.max(cfg.zoomMin, Math.min(cfg.zoomMax, this.currentScale + d));
-        this.group.scale.setScalar(this.currentScale);
+        // 只改变目标值，实际缩放由 update() 用阻尼平滑逼近
+        this.targetScale = Math.max(cfg.zoomMin, Math.min(cfg.zoomMax, this.targetScale + d));
 
-        if (this.currentScale <= 0.42 && !this.isUIActive) {
+        if (this.targetScale <= 0.42 && !this.isUIActive) {
             this.showUI();
-        } else if (this.currentScale > 0.42 && this.isUIActive) {
+        } else if (this.targetScale > 0.42 && this.isUIActive) {
             this.hideUI();
         }
     }
@@ -379,6 +408,14 @@ export class Hologram {
 
         // shader
         if (this._shellMat) this._shellMat.uniforms.uTime.value = time;
+
+        // 滚轮缩放平滑过渡：指数阻尼，与帧率无关
+        if (Math.abs(this.targetScale - this.currentScale) > 1e-4) {
+            const k = 1 - Math.pow(0.002, dt);
+            this.currentScale += (this.targetScale - this.currentScale) * k;
+            if (Math.abs(this.targetScale - this.currentScale) <= 1e-4) this.currentScale = this.targetScale;
+            this.group.scale.setScalar(this.currentScale);
+        }
 
         // 全息旋转
         const rotSpeed = this.focusedPlanet ? 0 : cfg.rotationSpeed;

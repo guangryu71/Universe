@@ -279,23 +279,6 @@ body {
     position: relative;
 }
 
-.msg-speak-btn {
-    display: inline-block;
-    margin-left: 6px;
-    vertical-align: middle;
-    border: 1px solid rgba(0,200,150,0.4);
-    background: rgba(0,200,150,0.08);
-    color: #0fa;
-    font-size: 11px;
-    cursor: pointer;
-    border-radius: 4px;
-    padding: 1px 6px;
-    transition: background 0.15s;
-}
-.msg-speak-btn:hover {
-    background: rgba(0,200,150,0.2);
-}
-
 .prompt {
     user-select: none;
 }

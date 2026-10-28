@@ -14,6 +14,8 @@ export class PhysicsEngine {
         /** @type {CelestialBody[]} */
         this.bodies = bodies;
         this.elapsedSimTime = 0;  // 累计模拟时间（秒）
+        /** 每个子步结束后的可选回调（用于碰撞检测等外部逻辑） */
+        this.onSubstep = null;
     }
 
     /**
@@ -106,6 +108,7 @@ export class PhysicsEngine {
             }
 
             this.elapsedSimTime += subDt;
+            if (this.onSubstep) this.onSubstep(subDt);
         }
     }
 

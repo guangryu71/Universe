@@ -2,6 +2,8 @@
 // voice_settings.js — 星语设置（浏览器 TTS）
 // ============================================================
 import { storageLoad, storageSave } from './utils.js';
+import { showToast } from './toast.js?v=1';
+import { loadConfig, updateAIConfig, getConnection, isConfigured } from '../model-chat/js/config.js?v=2';
 
 const STORAGE_KEY = 'starvoice_settings';
 
@@ -34,7 +36,7 @@ function _showSubtitle(text) {
     _subtitleTimer = setTimeout(() => el.classList.remove('visible'), 15000);
 }
 
-function saveSettings() { storageSave(STORAGE_KEY, _settings); }
+function saveSettings() { return storageSave(STORAGE_KEY, _settings); }
 
 export function getPrompt() { return _settings.prompt; }
 
@@ -74,6 +76,107 @@ export function speak(text) {
     }, 100);
 }
 
+// ========== AI 接口配置（提示词左侧） ==========
+const AI_MODE_SEL = 'input[name="vs-ai-mode"]';
+
+function _aiEl(id) { return document.getElementById(id); }
+
+function _applyAIModeUI(mode) {
+    _aiEl('vs-ai-api-opts')?.classList.toggle('hidden', mode === 'local');
+    _aiEl('vs-ai-local-opts')?.classList.toggle('hidden', mode !== 'local');
+}
+
+function _renderAIConfigStatus(message) {
+    const el = _aiEl('vs-ai-status');
+    if (!el) return;
+    if (message) {
+        el.textContent = message;
+        return;
+    }
+    if (!isConfigured()) {
+        el.textContent = '⚠ 尚未完成配置：直接 API 需要地址与 Key，本地部署需要地址与模型名。';
+        return;
+    }
+    const conn = getConnection();
+    el.textContent = `当前：${conn.label} · ${conn.model} · ${conn.url}`;
+}
+
+async function _syncAIConfigUI() {
+    let cfg;
+    try {
+        cfg = await loadConfig();
+    } catch {
+        return;
+    }
+    if (!cfg) return;
+
+    const mode = cfg.mode === 'local' ? 'local' : 'api';
+    document.querySelectorAll(AI_MODE_SEL).forEach(r => { r.checked = r.value === mode; });
+    _applyAIModeUI(mode);
+
+    const setValue = (id, value) => {
+        const el = _aiEl(id);
+        if (el && document.activeElement !== el) el.value = value ?? '';
+    };
+    setValue('vs-ai-url', cfg.apiUrl);
+    setValue('vs-ai-key', cfg.apiKey);
+    setValue('vs-ai-model', cfg.model);
+    setValue('vs-ai-local-url', cfg.localUrl);
+    setValue('vs-ai-local-model', cfg.localModel);
+    setValue('vs-ai-local-key', cfg.localKey);
+    setValue('vs-ai-max-tokens', cfg.maxTokens);
+    setValue('vs-ai-temperature', cfg.temperature);
+
+    const tempVal = _aiEl('vs-ai-temp-val');
+    if (tempVal) tempVal.textContent = Number(cfg.temperature).toFixed(2);
+    _renderAIConfigStatus();
+}
+
+function _initAIConfigUI() {
+    document.querySelectorAll(AI_MODE_SEL).forEach(radio => {
+        radio.addEventListener('change', () => {
+            if (radio.checked) _applyAIModeUI(radio.value);
+        });
+    });
+
+    _aiEl('vs-ai-temperature')?.addEventListener('input', function () {
+        const label = _aiEl('vs-ai-temp-val');
+        if (label) label.textContent = Number(this.value).toFixed(2);
+    });
+
+    _aiEl('vs-ai-save')?.addEventListener('click', () => {
+        const mode = document.querySelector(`${AI_MODE_SEL}:checked`)?.value === 'local' ? 'local' : 'api';
+        const apiUrl = (_aiEl('vs-ai-url')?.value || '').trim();
+        const localUrl = (_aiEl('vs-ai-local-url')?.value || '').trim();
+        const url = mode === 'local' ? localUrl : apiUrl;
+        if (!/^https?:\/\//i.test(url)) {
+            _renderAIConfigStatus('⚠ 接口地址必须以 http:// 或 https:// 开头');
+            return;
+        }
+
+        const model = ((mode === 'local' ? _aiEl('vs-ai-local-model')?.value : _aiEl('vs-ai-model')?.value) || '').trim();
+        if (!model) {
+            _renderAIConfigStatus('⚠ 请填写模型名称');
+            return;
+        }
+
+        updateAIConfig({
+            mode,
+            apiUrl,
+            localUrl,
+            apiKey: (_aiEl('vs-ai-key')?.value || '').trim(),
+            model: (_aiEl('vs-ai-model')?.value || '').trim(),
+            localModel: (_aiEl('vs-ai-local-model')?.value || '').trim(),
+            localKey: (_aiEl('vs-ai-local-key')?.value || '').trim(),
+            maxTokens: Math.round(Number(_aiEl('vs-ai-max-tokens')?.value) || 2048),
+            temperature: Number(_aiEl('vs-ai-temperature')?.value ?? 0.7),
+        });
+        _renderAIConfigStatus('✅ 已保存（仅保存在本机浏览器）');
+    });
+
+    loadConfig().then(_syncAIConfigUI).catch(() => {});
+}
+
 // ========== UI ==========
 export function initVoiceSettings() {
     const modal    = document.getElementById('voice-settings-modal');
@@ -81,7 +184,10 @@ export function initVoiceSettings() {
     const closeBtn = document.getElementById('vs-close');
     const backdrop = modal?.querySelector('.vs-backdrop');
 
-    btn?.addEventListener('click', () => modal.classList.remove('hidden'));
+    btn?.addEventListener('click', () => {
+        modal.classList.remove('hidden');
+        _syncAIConfigUI();
+    });
     const _close = () => modal.classList.add('hidden');
     closeBtn?.addEventListener('click', _close);
     backdrop?.addEventListener('click', _close);
@@ -124,9 +230,16 @@ export function initVoiceSettings() {
         promptInput.value = _settings.prompt;
         document.getElementById('vs-prompt-save')?.addEventListener('click', () => {
             _settings.prompt = promptInput.value.trim() || DEFAULTS.prompt;
-            promptInput.value = _settings.prompt; saveSettings();
+            promptInput.value = _settings.prompt;
+            if (saveSettings()) {
+                showToast('✅ 提示词保存成功', 'success');
+            } else {
+                showToast('⚠ 提示词保存失败：浏览器存储不可用', 'error');
+            }
         });
     }
+
+    _initAIConfigUI();
 
     _initDone = true;
     console.log('[语音] 浏览器 TTS 就绪');

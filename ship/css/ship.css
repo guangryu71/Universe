@@ -1,28 +1,12 @@
 /* ============================================================
    ship.css — 飞船舱室 UI（移植 飞船.html）
    ============================================================ */
-.hud { position: fixed; pointer-events: none; z-index: 100; font-family:'Rajdhani',sans-serif; color:#e0f4ff; }
-.hud-top { top:0; left:0; right:0; padding:20px 28px; display:flex; justify-content:space-between; align-items:center; }
-.brand { font-family:'Orbitron',sans-serif; font-weight:900; letter-spacing:8px; font-size:14px; color:#cfeaff; text-shadow:0 0 18px rgba(0,212,255,0.6); }
-.brand small { display:block; font-family:'Rajdhani'; font-weight:300; letter-spacing:4px; font-size:9px; opacity:0.5; margin-top:3px; color:#7fc4dc; }
-.brand .dot { display:inline-block; width:6px; height:6px; background:#00d4ff; border-radius:50%; margin:0 6px 2px; box-shadow:0 0 12px #00d4ff; animation:blink 2s infinite; vertical-align:middle; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
-.hud-right { display:flex; gap:12px; font-family:'Orbitron'; font-size:10px; letter-spacing:3px; }
-.stat { background:rgba(8,20,36,0.4); border:1px solid rgba(0,212,255,0.25); padding:7px 14px; backdrop-filter:blur(8px); clip-path:polygon(8px 0,100% 0,100% calc(100%-8px),calc(100%-8px) 100%,0 100%,0 8px); }
-.stat .v { color:#00d4ff; font-weight:700; }
-.stat .l { opacity:0.5; font-size:8px; }
 
 .crosshair { position:fixed; left:50%; top:50%; width:22px; height:22px; transform:translate(-50%,-50%); pointer-events:none; z-index:50; opacity:0.4; }
 .crosshair::before,.crosshair::after { content:''; position:absolute; background:#00d4ff; box-shadow:0 0 6px #00d4ff; }
 .crosshair::before { left:50%; top:0; width:1px; height:100%; transform:translateX(-50%); }
 .crosshair::after { top:50%; left:0; height:1px; width:100%; transform:translateY(-50%); }
-
-.hud-bottom { bottom:0; left:0; right:0; padding:20px 28px; display:flex; justify-content:space-between; align-items:flex-end; }
-.controls-hint { font-size:12px; line-height:1.9; letter-spacing:1px; }
-.key { display:inline-block; background:rgba(0,212,255,0.08); border:1px solid rgba(0,212,255,0.3); padding:2px 8px; margin:0 2px; font-family:'Orbitron'; font-size:9px; letter-spacing:1px; color:#7fdcff; }
-.mode-indicator { text-align:right; font-family:'Orbitron'; font-size:11px; letter-spacing:4px; }
-.mode-indicator .label { opacity:0.4; font-size:9px; }
-.mode-indicator .value { color:#00d4ff; font-weight:700; margin-top:4px; text-shadow:0 0 10px rgba(0,212,255,0.7); }
 
 #hover-tooltip { position:fixed; pointer-events:none; background:rgba(0,212,255,0.1); border:1px solid rgba(0,212,255,0.5); padding:5px 14px; font-family:'Orbitron'; font-size:10px; letter-spacing:3px; color:#7fdcff; transform:translate(-50%,12px); opacity:0; transition:opacity 0.15s; backdrop-filter:blur(6px); z-index:200; clip-path:polygon(6px 0,100% 0,calc(100%-6px) 100%,0 100%); left:50%; top:50%; }
 
@@ -35,7 +19,7 @@
 .ui-status::before { content:''; width:8px; height:8px; background:#00ff9c; border-radius:50%; box-shadow:0 0 10px #00ff9c; animation:blink 1.5s infinite; }
 .ui-close { position:absolute; top:-10px; right:-10px; width:32px; height:32px; background:rgba(0,20,40,0.9); border:1px solid rgba(0,212,255,0.5); color:#00d4ff; font-family:'Orbitron'; font-size:14px; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all 0.2s; clip-path:polygon(6px 0,100% 0,100% calc(100%-6px),calc(100%-6px) 100%,0 100%,0 6px); }
 .ui-close:hover { background:rgba(0,212,255,0.3); color:#fff; box-shadow:0 0 15px rgba(0,212,255,0.5); }
-.ui-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.ui-grid { display:grid; grid-template-columns:1fr; gap:12px; }
 .ui-btn { background:linear-gradient(135deg,rgba(0,212,255,0.06),rgba(0,212,255,0.02)); border:1px solid rgba(0,212,255,0.25); padding:18px 20px; cursor:pointer; transition:all 0.25s; font-family:'Rajdhani'; text-align:left; color:#e0f4ff; position:relative; overflow:hidden; clip-path:polygon(10px 0,100% 0,100% calc(100%-10px),calc(100%-10px) 100%,0 100%,0 10px); }
 .ui-btn:hover { background:linear-gradient(135deg,rgba(0,212,255,0.18),rgba(0,212,255,0.05)); border-color:rgba(0,212,255,0.7); transform:translateY(-2px); box-shadow:0 8px 30px rgba(0,212,255,0.15); }
 .ui-btn .num { font-family:'Orbitron'; font-size:9px; letter-spacing:2px; color:#00d4ff; opacity:0.7; }
@@ -48,9 +32,6 @@
 
 #toast { position:fixed; top:80px; left:50%; transform:translateX(-50%) translateY(-20px); background:rgba(0,212,255,0.12); border:1px solid rgba(0,212,255,0.5); padding:12px 28px; font-family:'Orbitron'; font-size:11px; letter-spacing:3px; color:#e0f4ff; opacity:0; pointer-events:none; transition:all 0.4s; z-index:400; backdrop-filter:blur(8px); clip-path:polygon(10px 0,100% 0,calc(100%-10px) 100%,0 100%); }
 #toast.show { opacity:1; transform:translateX(-50%) translateY(0); }
-
-#scan-line { position:fixed; left:0; right:0; height:1px; background:linear-gradient(90deg,transparent,rgba(0,212,255,0.6),transparent); pointer-events:none; z-index:90; animation:scan 8s linear infinite; opacity:0.5; }
-@keyframes scan { 0%{top:-2%} 100%{top:102%} }
 
 .vignette { position:fixed; inset:0; pointer-events:none; z-index:80; background:radial-gradient(ellipse at center,transparent 40%,rgba(0,0,0,0.6) 100%); }
 

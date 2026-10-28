@@ -1,6 +1,6 @@
 // ============================================================
 // SystemManager.js — 系统切换管理器（独立场景组）
-// 每个单恒星系统有独立的 THREE.Group，互不干扰
+// 每个星体系统有独立的 THREE.Group，互不干扰
 // 切换时：仅将当前系统的组显示，其他系统隐藏
 // ============================================================
 
@@ -181,6 +181,21 @@ export class SystemManager {
         this._systemPlanetKeys[id] = bodyKeys;
         group.visible = false;
         console.log(`[SystemManager] 注册自定义系统组: ${id} (${bodyKeys.length} 天体)`);
+    }
+
+    /**
+     * 系统在被编辑后已由外部销毁并重建（GalaxyBrowser 再次编译 / 导入导出）。
+     * 如果它正是当前活跃系统，需要重新挂载新组并同步物理引擎。
+     */
+    refreshActiveSystem(id) {
+        if (this._activeSystemId !== id) return;
+        const group = this._systemGroups[id];
+        if (!group) return;
+        group.visible = true;
+        this.mainScene.add(group);
+        this._syncPhysicsToSystem(id);
+        this.onDrawOrbits(id, this.mainScene);
+        this.onSwitch(id);
     }
 
     /** 获取当前活跃系统 ID */

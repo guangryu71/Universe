@@ -45,10 +45,15 @@ export class SceneManager {
         // --- OrbitControls（Blender 风格：中键旋转、左键平移、滚轮缩放） ---
         this.controls = new OrbitControls(this.camera, this.renderer.domElement);
         this.controls.enableDamping = true;
-        this.controls.dampingFactor = 0.25;
-        this.controls.minDistance = 0;
+        // 平滑惯性：越小越“滑”，拖拽 / 平移 / 滚轮缩放停止后视角继续缓动衰减
+        this.controls.dampingFactor = 0.08;
+        // minDistance 不能为 0：距离退化到 0 时旋转目标与相机重合、平移速度按距离缩放，
+        // 视角会“卡死”在一点，之后要滚上百次才能重新拉远。
+        this.controls.minDistance = 0.5;
         this.controls.maxDistance = ss * 1000;
-        this.controls.zoomSpeed = 2.0;
+        this.controls.zoomSpeed = 1.5;
+        // 滚轮朝向鼠标所指处缩放，便于从近距离快速转移到其他星体
+        this.controls.zoomToCursor = true;
         this.controls.target.set(0, 0, 0);
 
         // Blender 映射

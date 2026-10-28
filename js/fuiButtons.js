@@ -4,53 +4,47 @@
 // ============================================================
 
 const BUTTON_TEXT = {
-    'bgm-control': [
-        '>> INITIALIZING AUDIO SUBSYSTEM...',
-        '>> LOADING INTERSTELLAR PLAYLIST...',
-        '>> SELECT SOURCE: DEEP_SPACE_FREQ_7.3MHz',
-        '>> AUDIO CODEC: STELLAR_AC3  ·  STANDBY',
-        '>> SYSTEM ONLINE.  ',
-    ],
     'chat-launcher': [
-        '>> CONNECTING TO NEURAL INTERFACE...',
-        '>> ESTABLISHING SECURE COMM_CHANNEL...',
-        '>> AUTHENTICATING OPERATOR CREDENTIALS...',
-        '>> LLM ENGINE: DEEPSEEK_FLASH  ·  LATENCY 0.2s',
-        '>> TERMINAL READY.  ',
-    ],
-    'add-body-btn': [
-        '>> COMPILING CELESTIAL BLUEPRINT...',
-        '>> LOADING MATTER SYNTHESIZER...',
-        '>> SPECIFY PARAMETERS: MASS / RADIUS / ORBIT',
-        '>> STANDBY FOR OBJECT CREATION.  ',
+        '>> 正在连接智能终端...',
+        '>> 建立加密通信链路...',
+        '>> 唤起 AI 对话助手，探索宇宙知识',
+        '>> 终端就绪。  ',
     ],
     'voice-settings-btn': [
-        '>> CONFIGURING VOCAL SYNTHESIZER...',
-        '>> CALIBRATING FREQUENCY MODULATOR...',
-        '>> TTS ENGINE: EDGE_TTS / ROBOTIC_V2',
-        '>> ADJUST PITCH · SPEED · MODULATION.',
-        '>> VOICE SYSTEM READY.  ',
+        '>> 正在配置语音合成器...',
+        '>> 校准频率调制模块...',
+        '>> 调整音色、音调与语速',
+        '>> 星语系统就绪。  ',
     ],
     'ship-entry-btn': [
-        '>> POWERING MAIN THRUSTERS...',
-        '>> RUNNING PRE-FLIGHT CHECKLIST...',
-        '>> INERTIAL DAMPERS: ACTIVE',
-        '>> NAVIGATION SYSTEM: ONLINE',
-        '>> READY FOR LAUNCH.  ',
+        '>> 主推进器预热中...',
+        '>> 执行起飞前检查...',
+        '>> 驾驶飞船近距离巡视星系',
+        '>> 随时可以启程。  ',
     ],
     'galaxy-browser-btn': [
-        '>> SCANNING STELLAR SYSTEMS...',
-        '>> QUERYING GALACTIC DATABASE...',
-        '>> FOUND: SOLAR_SYSTEM / HD_219134 / ++',
-        '>> CATALOG INDEXING COMPLETE.',
-        '>> GALAXY BROWSER READY.  ',
+        '>> 正在连接星体数据库...',
+        '>> 索引用户星体系统...',
+        '>> 管理、编译并导入导出星体系统',
+        '>> 星体数据库就绪。  ',
+    ],
+    'abp-rebuild-orbits': [
+        '>> 正在校准轨道力学模型...',
+        '>> 重新读取天体质量与位置...',
+        '>> 按当前状态重绘所有轨道线',
+        '>> 轨道系统就绪。  ',
+    ],
+    'probe-launcher-btn': [
+        '>> 探测器发射架已就位...',
+        '>> 校准深空探测航线...',
+        '>> 向目标星球快速发射探测器',
+        '>> 等待发射指令。  ',
     ],
     'planet-lab-btn': [
-        '>> INITIALIZING LABORATORY ENVIRONMENT...',
-        '>> CALIBRATING SPECTROMETER...',
-        '>> PLANETARY DATA FEED: ACTIVE',
-        '>> ANALYSIS TOOLS: ONLINE',
-        '>> READY FOR COMPOSITION ANALYSIS.  ',
+        '>> 正在初始化实验室环境...',
+        '>> 校准光谱分析仪...',
+        '>> 搭建独立的星球模拟场景',
+        '>> 实验设备就绪。  ',
     ],
 };
 
@@ -61,6 +55,7 @@ class FUIButtonManager {
         this.currentBtn = null;
         this.isHovering = false;
         this.typingTimer = null;
+        this.hideTimer = null;
 
         if (!this.display || !this.typewriter) return;
 
@@ -87,19 +82,25 @@ class FUIButtonManager {
         this.isHovering = true;
         this.currentBtn = btn;
 
+        // 取消上一个按钮离场时挂起的清除定时器：
+        // 快速从一个按钮移到另一个按钮时，旧定时器会把新按钮的打字内容清掉
+        clearTimeout(this.hideTimer);
+        this.hideTimer = null;
+
         // 停止之前的打字机音效
         if (window.__soundManager) window.__soundManager.stopTypewriterStream();
 
         // 清空并显示
         clearTimeout(this.typingTimer);
         this.typewriter.innerHTML = '';
+        this.typewriter.style.opacity = '1';
         this.display.classList.add('visible');
 
         // 获取对应文本
         const lines = BUTTON_TEXT[btn.id] || [
-            '>> SYSTEM QUERY...',
-            '>> MODULE: ' + btn.id.toUpperCase(),
-            '>> STANDBY.  ',
+            '>> 正在查询系统模块...',
+            '>> 模块：' + btn.id.toUpperCase(),
+            '>> 待命中。  ',
         ];
 
         // 逐行打字
@@ -113,7 +114,10 @@ class FUIButtonManager {
 
         // 故障清除效果
         this.typewriter.style.opacity = '0.4';
-        setTimeout(() => {
+        clearTimeout(this.hideTimer);
+        this.hideTimer = setTimeout(() => {
+            // 120ms 内已经悬停到别的按钮 → 不要清除新内容
+            if (this.isHovering) return;
             this.typewriter.innerHTML = '';
             this.typewriter.style.opacity = '1';
             this.display.classList.remove('visible');

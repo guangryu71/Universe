@@ -1,1 +1,1 @@
-export { ShipModule } from './ShipModule.js';
+export { ShipModule } from './ShipModule.js?v=10';

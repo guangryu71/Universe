@@ -7,14 +7,15 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { SYSTEM_SCALE } from '../../js/constants.js';
-import { ShipModel } from './ShipModel.js';
-import { PlayerController } from './PlayerController.js';
-import { Hologram } from './Hologram.js';
+import { ShipModel, SHIP_SCALE } from './ShipModel.js?v=4';
+import { PlayerController } from './PlayerController.js?v=4';
+import { Hologram } from './Hologram.js?v=2';
 
 const UNIVERSE_UI = [
-    'time-control','hint','fps','bgm-control','chat-launcher',
-    'voice-settings-btn','add-body-btn','view-plane-btns',
+    'time-control','hint','fps','chat-launcher',
+    'voice-settings-btn','view-plane-btns','scene-crumbs',
     'planet-card','ship-entry-btn','galaxy-browser-btn','planet-lab-btn',
+    'probe-launcher','abp-rebuild-orbits','universe-view-btn',
 ];
 
 export class ShipModule {
@@ -27,6 +28,12 @@ export class ShipModule {
         // 舱室模型
         this.shipModel = new ShipModel();
         this.shipGroup = this.shipModel.getShipGroup();
+        // 飞船相对星体系统的缩放：舱室整体缩小，星球随之视觉上放大，
+        // 跃迁到星球附近时能获得真正的“巨物感”。
+        // 因为相机眼高 / 移动边界 / 地板高度也同步按此比例缩放，
+        // 舱内的观感与缩放前完全一致。
+        this.SHIP_SCALE = SHIP_SCALE;
+        this.shipGroup.scale.setScalar(this.SHIP_SCALE);
         this.sceneManager.scene.add(this.shipGroup);
         this._positionNearEarth();
 
@@ -42,9 +49,12 @@ export class ShipModule {
                 if (!locked && this.state === 'ship' && !this._holo?.isUIActive && !this._holo?.focusedPlanet) {
                     // 退出锁定时显示覆盖提示
                 }
-            }
+            },
+            this.SHIP_SCALE
         );
         this.player.setPointerLockControls(this.controls);
+        // 让相机高度跟随中央下凹的地板
+        this.player.floorHeight = (x, z) => this.shipModel.getFloorHeight(x, z);
 
         // 全息投影
         this._holo = new Hologram(
@@ -94,7 +104,8 @@ export class ShipModule {
 
         const cam = this.sceneManager.camera;
         const dir = cam.getWorldDirection(new THREE.Vector3());
-        this.shipGroup.position.copy(cam.position).add(dir.multiplyScalar(-4));
+        // 舱室按 SHIP_SCALE 缩小后，进场偏移也要同步缩小，否则相机起点会落在船体外
+        this.shipGroup.position.copy(cam.position).add(dir.multiplyScalar(-4 * this.SHIP_SCALE));
         this.shipGroup.quaternion.set(0,0,0,1);
 
         this._savedPos.copy(cam.position);
@@ -102,12 +113,6 @@ export class ShipModule {
         this._savedQuat.copy(cam.quaternion);
 
         this._hideUI();
-        // 显示飞船 HUD
-        const hT = document.getElementById('ship-hud-top');
-        const hB = document.getElementById('ship-hud-bottom');
-        if (hT) hT.style.display = '';
-        if (hB) hB.style.display = '';
-
         // 注入当前系统天体到全息
         this._holo.setBodies(this._currentBodies());
 
@@ -137,6 +142,8 @@ export class ShipModule {
 
     exit() {
         if (this.state !== 'ship') return;
+        // 立即清掉舱内悬停标签，否则返回宇宙视图后「星体系统全息投影」会残留
+        this._clearHoloHover();
         this.player.disable();
         try { this.controls.unlock(); } catch(e) {}
         this._holo._hideCtx();
@@ -163,11 +170,6 @@ export class ShipModule {
                 this.sceneManager.controls.enabled = true;
                 this.sceneManager.controls.update?.();
                 this._showUI();
-                // 隐藏飞船 HUD
-                const hT = document.getElementById('ship-hud-top');
-                const hB = document.getElementById('ship-hud-bottom');
-                if (hT) hT.style.display = 'none';
-                if (hB) hB.style.display = 'none';
                 this.state = 'universe';
                 this._warpTarget = null;
             }
@@ -187,7 +189,11 @@ export class ShipModule {
         const radius = (body.visualRadius || 2) * SYSTEM_SCALE;
         // 飞船与星体同一水平面（y 对齐），在星体平行位置处偏移
         const angle = Math.random() * Math.PI * 2;
-        const dist = radius * 3.5 + 2 * SYSTEM_SCALE;
+        // 跃迁落点：尽量贴近星球表面，使视直径达到约 100°~110°，星球直接占满视野
+        // （垂直 FOV 72°，宽屏水平 FOV 约 105°）。
+        // 下限保证舱室不与星球表面相交（舱室外沿 = 舱室半径 × 飞船缩放）。
+        const roomR = this.shipModel.getRoom().rx * this.SHIP_SCALE;
+        const dist = Math.max(radius * 1.22, radius + roomR + 0.6);
         const offset = new THREE.Vector3(
             Math.cos(angle) * dist,
             0,
@@ -198,6 +204,9 @@ export class ShipModule {
         this._warpTarget = body;
         this.shipGroup.position.copy(target).add(offset);
         this.player.setOrigin(this.shipGroup.position);
+        // 跃迁落定后把视线直接朝向星球中心：借助闪白完成转向，
+        // 睁眼即是占满视野的巨物
+        this.sceneManager.camera.lookAt(target);
         // 跃迁后重新注入天体数据（位置已更新）
         this._holo.setBodies(this._currentBodies());
 
@@ -241,10 +250,9 @@ export class ShipModule {
         this.player.update(dc);
         this._holo.update(dc, this._clock);
 
-        // 更新 tooltip / mode
+        // 更新 tooltip
         const tt = document.getElementById('hover-tooltip');
-        const mv = document.getElementById('mode-value');
-        if (!tt || !mv) return;
+        if (!tt) return;
         const fp = this._holo.focusedPlanet;
         const raycaster = new THREE.Raycaster();
         raycaster.setFromCamera(new THREE.Vector2(0, 0), this.sceneManager.camera);
@@ -253,16 +261,12 @@ export class ShipModule {
 
         if (fp) {
             tt.textContent = fp.userData.planetName; tt.style.opacity = '1';
-            mv.textContent = fp.userData.planetName.toUpperCase(); mv.style.color = '#00ff9c';
         } else if (isHover) {
             tt.textContent = hits[0].object.userData.planetName; tt.style.opacity = '1';
-            mv.textContent = hits[0].object.userData.planetName.toUpperCase(); mv.style.color = '#9ce8ff';
         } else if (this._holo.isHoverShell) {
             tt.textContent = '星体系统全息投影'; tt.style.opacity = '1';
-            mv.textContent = 'HOLOGRAM'; mv.style.color = '#9ce8ff';
         } else {
             tt.style.opacity = '0';
-            mv.textContent = 'EXPLORATION'; mv.style.color = '#00d4ff';
         }
     }
 
@@ -279,6 +283,13 @@ export class ShipModule {
 
     _currentBodies() {
         return this.physics ? this.physics.bodies.filter(b => b.mesh) : [];
+    }
+
+    /** 清除舱内悬停标签，避免退出飞船后残留到宇宙视图 */
+    _clearHoloHover() {
+        const tt = document.getElementById('hover-tooltip');
+        if (tt) tt.style.opacity = '0';
+        if (this._holo) this._holo.isHoverShell = false;
     }
 
     _showToast(msg) {
@@ -321,9 +332,10 @@ export class ShipModule {
             if (this.state === 'ship') e.preventDefault();
         });
 
-        // 滚轮
+        // 滚轮：锁定视角或控制台开启时都可用，缩回即可关闭控制台
         document.addEventListener('wheel', (e) => {
-            if (this.state === 'ship' && (this.controls.isLocked || this._holo.focusedPlanet)) {
+            if (this.state === 'ship' &&
+                (this.controls.isLocked || this._holo.focusedPlanet || this._holo.isUIActive)) {
                 e.preventDefault();
                 this._holo.handleWheel(e.deltaY);
             }
@@ -332,15 +344,10 @@ export class ShipModule {
         // UI 关闭按钮
         document.getElementById('ui-close-btn')?.addEventListener('click', () => this._holo?.hideUI());
 
-        // UI 按钮：NAV → 退出飞船
+        // UI 按钮：仅保留 NAV —— 退出飞船
         document.querySelectorAll('.ui-btn').forEach(btn => {
             btn.addEventListener('click', () => {
-                const a = btn.dataset.action;
-                if (a === 'nav') { this.exit(); return; }
-                this._showToast({
-                    nav: '导航系统已校准', shield: '能量护盾已激活',
-                    scan: '深空扫描启动', warp: '曲率引擎预热'
-                }[a] || '指令已执行');
+                if (btn.dataset.action === 'nav') this.exit();
             });
         });
     }
